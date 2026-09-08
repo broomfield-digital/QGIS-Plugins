@@ -90,10 +90,10 @@ class GridSpec:
 
 #: MERRA-2 / GEOS. A node sits exactly on integer degrees of latitude, which is
 #: why two tiles meeting at lat 40.0 both return that row.
-MERRA2_GRID = GridSpec(0.5, 0.625, True, "MERRA-2 0.5deg x 0.625deg")
+MERRA2_GRID = GridSpec(0.5, 0.625, True, "0.5° x 0.625°")
 #: CERES SYN1deg. Cell centres are on half-degrees, so an integer tile boundary
 #: falls between cells and nothing is duplicated.
-SYN1DEG_GRID = GridSpec(1.0, 1.0, False, "CERES SYN1deg 1.0deg")
+SYN1DEG_GRID = GridSpec(1.0, 1.0, False, "1.0°")
 
 GRIDS: Mapping[Family, GridSpec | None] = {
     Family.RADIATION: SYN1DEG_GRID,

@@ -144,8 +144,8 @@ class BuildProvenanceNoteTests(unittest.TestCase):
         # POWER does not regrid: solar arrives 1.0 deg and meteorology
         # 0.5 x 0.625 deg for the identical bounding box, so the two are not
         # co-registered and the layer must say which grid it is on.
-        note = build_provenance_note(("MERRA2",), grid_label="MERRA-2 0.5deg x 0.625deg")
-        self.assertIn("MERRA-2 0.5deg x 0.625deg", note)
+        note = build_provenance_note(("MERRA2",), grid_label="0.5° x 0.625°")
+        self.assertIn("0.5° x 0.625°", note)
         self.assertIn("not resampled", note)
 
     def test_the_reported_sources_are_echoed(self) -> None:

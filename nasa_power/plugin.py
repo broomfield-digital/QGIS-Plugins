@@ -98,6 +98,12 @@ class NasaPowerPlugin:
 
     def unload(self) -> None:
         """Remove everything this plugin registered anywhere in QGIS."""
+        # Registered process-wide by the fetcher, so it outlives this module
+        # and would keep running on every request QGIS makes after a reload.
+        from nasa_power.qgis_bridge.net import unregister_user_agent
+
+        unregister_user_agent()
+
         if self._provider is not None:
             QgsApplication.processingRegistry().removeProvider(self._provider)
             self._provider = None

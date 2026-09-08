@@ -191,6 +191,13 @@ def layer_name(
 
     A leading warning sign marks a layer carrying an ERROR-level QA finding,
     most importantly one whose window straddles the 2001 SRB-to-CERES seam.
+
+    **A source is named only when it is unambiguous.** POWER reports sources
+    per *request*, so an unsplit request for two parameters comes back with
+    both parents listed -- and printing both beside a single parameter's name
+    would assert something false about that parameter. When more than one
+    source is reported the name says the provenance is mixed and leaves the
+    detail to the QA finding and the layer metadata, which have room to explain.
     """
     parts = [display_name(parameter, long_name)]
     if units:
@@ -204,10 +211,16 @@ def layer_name(
     if sources or grid_label:
         from nasa_power.core.provenance import describe_sources
 
-        inner = describe_sources(sources) if sources else ""
-        if grid_label:
-            inner = f"{inner} {grid_label}".strip()
-        provenance = f"({inner})"
+        if len(sources) > 1:
+            inner = "mixed provenance"
+        elif sources:
+            inner = describe_sources(sources)
+        else:
+            inner = ""
+        # Comma-separated, or "MERRA-2" and "MERRA-2 0.5deg x 0.625deg" run
+        # together into something that reads as one long dataset name.
+        inner = ", ".join(p for p in (inner, grid_label) if p)
+        provenance = f"({inner})" if inner else ""
 
     name = " ".join(p for p in [*parts, provenance] if p)
     return f"⚠ {name}" if warn else name

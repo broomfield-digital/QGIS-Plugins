@@ -219,10 +219,10 @@ class LayerNameTests(unittest.TestCase):
             "daily",
             "UTC",
             sources=("MERRA2",),
-            grid_label="MERRA-2 0.5deg x 0.625deg",
+            grid_label="0.5° x 0.625°",
         )
         self.assertIn("MERRA-2", name)
-        self.assertIn("0.5deg", name)
+        self.assertIn("0.5°", name)
 
     def test_the_warning_marker_appears_only_when_asked(self) -> None:
         warned = layer_name("T2M", "C", "daily", "UTC", warn=True)
