@@ -31,7 +31,7 @@ from qgis.PyQt.QtCore import Qt
 PLUGIN_DIR = os.path.dirname(__file__)
 ICON_PATH = os.path.join(PLUGIN_DIR, "icons", "nasa_power.svg")
 
-#: Shown in the toolbar, the Plugins menu, and the dock title.
+#: Shown in the toolbar, under the Plugins menu, and as the dock title.
 MENU_TITLE = "NASA POWER"
 
 
@@ -89,7 +89,11 @@ class NasaPowerPlugin:
         self._dock.visibilityChanged.connect(self._action.setChecked)
 
         self.iface.addToolBarIcon(self._action)
-        self.iface.addPluginToWebMenu(MENU_TITLE, self._action)
+        # Plugins menu, not the Web menu. `category=Web` in metadata.txt is
+        # right for how the plugin repository classifies this -- it is a web
+        # service client -- but it is not where anyone looks for it. Nobody
+        # opening QGIS to fetch some data thinks "Web".
+        self.iface.addPluginToMenu(MENU_TITLE, self._action)
 
         from nasa_power.gui.options import PowerOptionsFactory
 
@@ -123,7 +127,7 @@ class NasaPowerPlugin:
             self._options_factory = None
 
         if self._action is not None:
-            self.iface.removePluginWebMenu(MENU_TITLE, self._action)
+            self.iface.removePluginMenu(MENU_TITLE, self._action)
             self.iface.removeToolBarIcon(self._action)
             self._action.deleteLater()
             self._action = None

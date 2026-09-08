@@ -33,7 +33,8 @@ Requires **QGIS 4.0+** (Qt6). Developed against QGIS 4.2.2 on macOS.
 make link
 ```
 
-Then enable *NASA POWER* in *Plugins → Manage and Install Plugins → Installed*. Settings live under
+Then enable **NASA POWER** in *Plugins → Manage and Install Plugins → Installed*. It appears as a toolbar
+button and under *Plugins → NASA POWER*. Settings live under
 *Settings → Options → NASA POWER*. See [docs/DEVELOPING.md](docs/DEVELOPING.md) for reloading, tests, and
 the QGIS-4 gotchas worth knowing.
 
