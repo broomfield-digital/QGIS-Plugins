@@ -191,6 +191,7 @@ def _observations_from_block(
     latitude: float,
     elevation: float | None,
     derive_cell: bool,
+    convert: bool = False,
 ) -> list[Observation]:
     """Turn one ``properties.parameter`` block into observations."""
     out: list[Observation] = []
@@ -209,10 +210,22 @@ def _observations_from_block(
 
         decoded = decode_time_keys(list(series), temporal)
         natives = [series[key] for key, _s, _e in decoded]
-        converted = convert_series(
-            natives, native_units, temporal, fill_value=facts.fill_value
-        )
-        canonical = canonical_units(native_units)
+
+        if convert:
+            converted = convert_series(
+                natives, native_units, temporal, fill_value=facts.fill_value
+            )
+            canonical = canonical_units(native_units)
+        else:
+            # Native units are the default, so a layer's numbers match what the
+            # POWER website shows and nothing is silently rescaled. Fill is
+            # still masked -- that is not a unit choice, it is the difference
+            # between a missing value and -999.
+            converted = [
+                None if (facts.fill_value is not None and v == facts.fill_value) else v
+                for v in natives
+            ]
+            canonical = native_units
 
         for (key, t_start, t_end), native, value in zip(decoded, natives, converted):
             out.append(
@@ -256,6 +269,7 @@ def parse_point_response(
     requested: Sequence[str] = (),
     site: str = "site",
     url: str | None = None,
+    convert: bool = False,
 ) -> tuple[list[Observation], ResponseFacts]:
     """Parse a point response: one GeoJSON ``Feature``.
 
@@ -285,6 +299,7 @@ def parse_point_response(
         # Point mode: the coordinate is what we asked for, so the answering
         # cell has to be derived.
         derive_cell=True,
+        convert=convert,
     )
     return observations, facts
 
@@ -295,6 +310,7 @@ def parse_regional_response(
     temporal: str,
     requested: Sequence[str] = (),
     url: str | None = None,
+    convert: bool = False,
 ) -> tuple[list[Observation], ResponseFacts]:
     """Parse a regional JSON response: a ``FeatureCollection`` of cell centres.
 
@@ -332,6 +348,7 @@ def parse_regional_response(
                 # Regional: the response coordinate already IS the cell centre,
                 # so deriving one would only add rounding error.
                 derive_cell=False,
+                convert=convert,
             )
         )
     return observations, facts

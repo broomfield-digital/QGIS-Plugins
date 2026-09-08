@@ -59,6 +59,9 @@ class PointDailyBaselineTest(unittest.TestCase):
             temporal="daily",
             requested=["T2M", "ALLSKY_SFC_SW_DWN"],
             site="boulder",
+            # Native units are the default; this class asserts the conversion
+            # arithmetic, so it opts in.
+            convert=True,
         )
 
     def test_one_observation_per_parameter_per_day(self):
@@ -236,12 +239,14 @@ class HourlyTimeStandardTest(unittest.TestCase):
             temporal="hourly",
             requested=["ALLSKY_SFC_SW_DWN"],
             site="boulder",
+            convert=True,
         )
         cls.lst, cls.lst_facts = parse_point_response(
             load_bytes("point_hourly_lst.json"),
             temporal="hourly",
             requested=["ALLSKY_SFC_SW_DWN"],
             site="boulder",
+            convert=True,
         )
 
     @staticmethod
@@ -291,6 +296,7 @@ class RegionalFeatureCollectionTest(unittest.TestCase):
             load_bytes("regional_daily_fc.json"),
             temporal="daily",
             requested=["T2M"],
+            convert=True,
         )
 
     def test_one_observation_per_cell(self):
@@ -489,7 +495,7 @@ class FillValueIsReadNotAssumedTest(unittest.TestCase):
 
     def _parse(self, payload):
         return parse_point_response(
-            payload, temporal="daily", requested=["T2M"], site="boulder"
+            payload, temporal="daily", requested=["T2M"], site="boulder", convert=True
         )
 
     def test_the_committed_fixtures_all_declare_minus_999(self):
@@ -540,3 +546,65 @@ class FillValueIsReadNotAssumedTest(unittest.TestCase):
         observations, facts = self._parse(payload)
         self.assertIsNone(facts.fill_value)
         self.assertEqual(_by(observations, "T2M", FIRST_START).native_value, -999.0)
+
+
+class NativeUnitsAreTheDefaultTest(unittest.TestCase):
+    """Values arrive in POWER's own units unless conversion is asked for.
+
+    A deliberate choice, and the opposite of DAVINCI's always-to-SI behaviour:
+    a layer's numbers should match what the POWER website shows, so nothing is
+    silently rescaled underneath a user comparing the two. SI is one checkbox
+    away, and the conversion is recorded in the layer's history when it happens.
+
+    Guarded because it is exactly the kind of default a later edit "tidies"
+    back to always-convert.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.raw = load_json("point_daily_2param.json")
+
+    def _parse(self, **kwargs):
+        return parse_point_response(
+            self.raw,
+            temporal="daily",
+            requested=["T2M", "ALLSKY_SFC_SW_DWN"],
+            site="boulder",
+            **kwargs,
+        )
+
+    def test_no_conversion_by_default(self):
+        observations, _facts = self._parse()
+        temperature = _by(observations, "T2M", _utc(2024, 2, 1))
+        self.assertEqual(temperature.value, 7.25)
+        self.assertEqual(temperature.units, "C")
+
+        irradiance = _by(observations, "ALLSKY_SFC_SW_DWN", _utc(2024, 2, 1))
+        self.assertEqual(irradiance.value, 3.5455)
+        self.assertEqual(irradiance.units, "kW-hr/m^2/day")
+
+    def test_value_equals_native_value_when_not_converting(self):
+        observations, _facts = self._parse()
+        for observation in observations:
+            self.assertEqual(observation.value, observation.native_value)
+            self.assertEqual(observation.units, observation.native_units)
+
+    def test_convert_true_still_converts(self):
+        # The opt-in must remain wired: the same fixture, one flag apart.
+        observations, _facts = self._parse(convert=True)
+        temperature = _by(observations, "T2M", _utc(2024, 2, 1))
+        self.assertAlmostEqual(temperature.value, 280.4, places=9)
+        self.assertEqual(temperature.units, "K")
+
+    def test_fill_is_masked_even_without_conversion(self):
+        # Masking is not a unit choice. -999 is the difference between a
+        # missing value and a reading, and it must never reach a colour ramp
+        # whichever units the layer carries.
+        payload = json.loads(json.dumps(self.raw))
+        payload["properties"]["parameter"]["T2M"][FIRST_KEY] = -999.0
+        observations, _facts = parse_point_response(
+            payload, temporal="daily", requested=["T2M"], site="boulder"
+        )
+        masked = _by(observations, "T2M", FIRST_START)
+        self.assertIsNone(masked.value)
+        self.assertIsNone(masked.native_value)

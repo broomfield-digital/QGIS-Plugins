@@ -13,10 +13,17 @@ ships.
   chart in the dock.
 - **Regional mode** — drag an extent. Requests are tiled to the API's 2–10° window, mosaicked, and written
   as a multi-band EPSG:4326 GeoTIFF that animates band by band.
+- **A chart in the dock**, drawn with QGIS's own `QgsLineChartPlot`, with a cursor that follows the
+  Temporal Controller.
+- **Processing algorithms** — `nasapower:powerpoint` and `nasapower:powerregional` — so the same fetch
+  runs from the toolbox, the Graphical Modeler, or `qgis_process` on a cluster.
 - **Provenance that is not a guess.** POWER's solar parameters come from CERES SYN1deg — but only from
   2001-01-01; before that they come from GEWEX SRB, and POWER's own CSV and JSON headers disagree about it.
-  Its meteorology *is* MERRA-2, on MERRA-2's own grid. Every layer records which, in its name and its
-  metadata.
+  Its meteorology *is* MERRA-2, on MERRA-2's own grid. Requests are split so each response has a single
+  parent, and every layer records which — in its name and its metadata.
+- **Native units by default**, so layer values match what the POWER website shows. SI conversion is one
+  checkbox away, and whichever way it is set the conversion applied — factor included — goes into the
+  layer's history.
 
 Requires **QGIS 4.0+** (Qt6). Developed against QGIS 4.2.2 on macOS.
 
@@ -26,8 +33,24 @@ Requires **QGIS 4.0+** (Qt6). Developed against QGIS 4.2.2 on macOS.
 make link
 ```
 
-Then enable *NASA POWER* in *Plugins → Manage and Install Plugins → Installed*. See
-[docs/DEVELOPING.md](docs/DEVELOPING.md) for reloading, tests, and the QGIS-4 gotchas worth knowing.
+Then enable *NASA POWER* in *Plugins → Manage and Install Plugins → Installed*. Settings live under
+*Settings → Options → NASA POWER*. See [docs/DEVELOPING.md](docs/DEVELOPING.md) for reloading, tests, and
+the QGIS-4 gotchas worth knowing.
+
+### From the command line
+
+```sh
+qgis_process run nasapower:powerpoint -- \
+  PARAMETERS=T2M,ALLSKY_SFC_SW_DWN "POINT=-105.27,40.02 [EPSG:4326]" \
+  TEMPORAL=daily START=2024-02-01 END=2024-02-29 OUTPUT=series.gpkg
+
+qgis_process run nasapower:powerregional -- \
+  PARAMETER=ALLSKY_SFC_SW_DWN "EXTENT=-106,-104,40,42 [EPSG:4326]" \
+  TEMPORAL=daily START=2024-02-01 END=2024-02-03 OUTPUT=solar.tif
+```
+
+Both share the panel's cache, and both report the same QA findings the panel shows — a headless run is
+not a quieter run.
 
 ### Citing the data
 

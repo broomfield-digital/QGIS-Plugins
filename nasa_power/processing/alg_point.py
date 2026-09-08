@@ -23,6 +23,7 @@ from qgis.core import (
     QgsPointXY,
     QgsProcessingException,
     QgsProcessingParameterFeatureSink,
+    QgsProcessingParameterBoolean,
     QgsProcessingParameterFeatureSource,
     QgsProcessingParameterPoint,
     QgsProcessingParameterString,
@@ -43,6 +44,7 @@ P_PARAMETERS = "PARAMETERS"
 P_SITES = "SITES"
 P_POINT = "POINT"
 P_LABEL_FIELD = "LABEL_FIELD"
+P_CONVERT_SI = "CONVERT_SI"
 P_OUTPUT = "OUTPUT"
 
 
@@ -98,6 +100,13 @@ class PowerPointAlgorithm(PowerAlgorithm):
                 "Single point",
                 defaultValue="-105.27,40.02 [EPSG:4326]",
                 optional=True,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterBoolean(
+                P_CONVERT_SI,
+                "Convert to SI units (off keeps POWER's native units)",
+                defaultValue=False,
             )
         )
         self.add_common_parameters(gridded=False)
@@ -158,6 +167,7 @@ class PowerPointAlgorithm(PowerAlgorithm):
         if sink is None:
             raise QgsProcessingException("Could not create the output sink.")
 
+        convert_si = self.parameterAsBool(parameters, P_CONVERT_SI, context)
         cache_dir = paths.resolve_cache_dir()
         fetcher = UrllibFetcher()
         written = 0
@@ -174,6 +184,7 @@ class PowerPointAlgorithm(PowerAlgorithm):
                 requested=request.params,
                 site=request.site or "site",
                 url=request.url,
+                convert=convert_si,
             )
             raw_keys = sorted(
                 {

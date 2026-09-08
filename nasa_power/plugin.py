@@ -45,6 +45,7 @@ class NasaPowerPlugin:
         self._action: QAction | None = None
         self._dock = None
         self._provider = None
+        self._options_factory = None
 
         # Runs on both the desktop and the qgis_process path.
         self.initProcessing()
@@ -90,6 +91,11 @@ class NasaPowerPlugin:
         self.iface.addToolBarIcon(self._action)
         self.iface.addPluginToWebMenu(MENU_TITLE, self._action)
 
+        from nasa_power.gui.options import PowerOptionsFactory
+
+        self._options_factory = PowerOptionsFactory()
+        self.iface.registerOptionsWidgetFactory(self._options_factory)
+
         self._gui_initialized = True
 
     # ------------------------------------------------------------------ #
@@ -108,6 +114,13 @@ class NasaPowerPlugin:
             QgsApplication.processingRegistry().removeProvider(self._provider)
             self._provider = None
         self._processing_initialized = False
+
+        if self._options_factory is not None:
+            # Registered with QGIS, not owned by this widget tree: without this
+            # a reload leaves a page bound to a deleted module, and the user
+            # gets a second NASA POWER entry in Options.
+            self.iface.unregisterOptionsWidgetFactory(self._options_factory)
+            self._options_factory = None
 
         if self._action is not None:
             self.iface.removePluginWebMenu(MENU_TITLE, self._action)

@@ -26,6 +26,7 @@ from qgis.PyQt.QtCore import QDate, Qt, pyqtSignal
 from qgis.PyQt.QtWidgets import (
     QAbstractItemView,
     QButtonGroup,
+    QCheckBox,
     QComboBox,
     QDateEdit,
     QDoubleSpinBox,
@@ -257,6 +258,25 @@ class WhatPanel(QWidget):
         self.parameters.setDefaultText("Choose parameters…")
         self._populate_parameters(CURATED_PARAMETERS)
         layout.addRow("Parameters", self.parameters)
+
+        # The curated list opens instantly and works offline; the full one is
+        # POWER's own, per (community, temporal), and is worth a click.
+        list_row = QHBoxLayout()
+        self.show_all = QCheckBox("All POWER parameters")
+        self.show_all.setToolTip(
+            "POWER serves 152 parameters daily and 1388 monthly, the latter "
+            "mostly hour-of-day variants. The short list is a curated subset "
+            "covering both halves of POWER."
+        )
+        self.load_button = QPushButton("Load list")
+        self.load_button.setToolTip(
+            "Download the parameter list for the selected community and "
+            "resolution. It is cached for a month."
+        )
+        list_row.addWidget(self.show_all)
+        list_row.addWidget(self.load_button)
+        list_row.addStretch(1)
+        layout.addRow("", list_row)
 
         self.temporal = QComboBox()
         self.temporal.addItems(list(TEMPORAL_LEVELS))

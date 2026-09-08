@@ -48,11 +48,12 @@ from nasa_power.core.decode import Observation, ResponseFacts, parse_point_respo
 from nasa_power.core.display import layer_name
 from nasa_power.core.provenance import family_of, grid_for
 from nasa_power.core.qa import Level, QaReport, preflight, postfetch
+from nasa_power.gui import param_model
 from nasa_power.gui.panels import OutputPanel, WherePanel, WhatPanel
 from nasa_power.gui.plot_widget import PowerPlotWidget
 from nasa_power.gui.qa_panel import QaPanel
 from nasa_power.gui.site_picker import SitePicker
-from nasa_power.qgis_bridge import paths
+from nasa_power.qgis_bridge import paths, settings
 from nasa_power.qgis_bridge.layer_metadata import apply_metadata
 from nasa_power.qgis_bridge.layers_point import build_point_layer
 from nasa_power.qgis_bridge.styling import style_point_layer
@@ -79,6 +80,8 @@ class NasaPowerDock(QgsDockWidget):
         self._task: PowerFetchTask | None = None
         self._picker: SitePicker | None = None
         self._previous_tool = None
+        self._dictionary = None
+        self._dictionary_task = None
 
         body = QWidget()
         layout = QVBoxLayout(body)
@@ -128,8 +131,68 @@ class NasaPowerDock(QgsDockWidget):
         self.where.pick_requested.connect(self._set_picking)
         self.fetch_button.clicked.connect(self.fetch)
         self.cancel_button.clicked.connect(self.cancel)
+        self.what.show_all.toggled.connect(self._repopulate_parameters)
+        self.what.load_button.clicked.connect(self.load_parameter_list)
+        self.what.community.currentTextChanged.connect(self._dictionary_context_changed)
+        self.what.temporal.currentTextChanged.connect(self._dictionary_context_changed)
         self._connect_temporal_controller()
+        self._dictionary_context_changed()
         self._refresh()
+
+    # ------------------------------------------------------------------ #
+    # Parameter list
+    # ------------------------------------------------------------------ #
+
+    def _dictionary_context_changed(self, *_args) -> None:
+        """Load a cached dictionary for the current community and resolution.
+
+        Cache only. Changing a dropdown must not start a download, and a
+        missing dictionary is not an error -- the curated list covers it.
+        """
+        self._dictionary = param_model.cached_dictionary(
+            self.what.community.currentText(),
+            self.what.temporal_level,
+            paths.resolve_cache_dir(),
+        )
+        self._repopulate_parameters()
+
+    def _repopulate_parameters(self, *_args) -> None:
+        self.what.set_parameter_choices(
+            param_model.choices(self._dictionary, show_all=self.what.show_all.isChecked())
+        )
+        self.what.load_button.setEnabled(self._dictionary is None)
+
+    def load_parameter_list(self) -> None:
+        """Fetch POWER's parameter list for the current community/resolution."""
+        if self._dictionary_task is not None:
+            return
+        task = param_model.DictionaryTask(
+            self.what.community.currentText(),
+            self.what.temporal_level,
+            paths.resolve_cache_dir(),
+        )
+        task.on_complete = self._dictionary_loaded
+        self.what.load_button.setEnabled(False)
+        # Held for the task's life, like the fetch task: a garbage-collected
+        # wrapper loses on_complete.
+        self._dictionary_task = task
+        QgsApplication.taskManager().addTask(task)
+
+    def _dictionary_loaded(self, parameters, error: str) -> None:
+        self._dictionary_task = None
+        if parameters is None:
+            self.what.load_button.setEnabled(True)
+            self._message(
+                f"Could not load the parameter list. {error}", Qgis.MessageLevel.Warning
+            )
+            return
+        self._dictionary = parameters
+        self._repopulate_parameters()
+        self._message(
+            f"Loaded {len(parameters)} parameters for "
+            f"{self.what.community.currentText()}/{self.what.temporal_level}.",
+            Qgis.MessageLevel.Success,
+        )
 
     def _connect_temporal_controller(self) -> None:
         """Track the Temporal Controller so the chart cursor follows the map.
@@ -272,6 +335,9 @@ class NasaPowerDock(QgsDockWidget):
             requests=requests,
             cache_dir=paths.resolve_cache_dir(),
             force=self.output.force_refetch.isChecked(),
+            concurrency=settings.get_int(
+                settings.KEY_MAX_CONCURRENCY, settings.DEFAULT_MAX_CONCURRENCY
+            ),
         )
 
         task = PowerFetchTask(f"NASA POWER: {len(requests)} request(s)", job)
@@ -330,6 +396,7 @@ class NasaPowerDock(QgsDockWidget):
                     requested=outcome.request.params,
                     site=outcome.request.site or "site",
                     url=outcome.request.url,
+                    convert=self.output.convert_si.isChecked(),
                 )
             except Exception as exc:
                 report.add(_failure_finding(outcome.request, str(exc)))
@@ -584,10 +651,12 @@ class NasaPowerDock(QgsDockWidget):
         task -- all of which outlive a plugin reload and then call back into
         modules that no longer exist.
         """
-        if self._task is not None:
-            self._task.on_complete = None
-            self._task.cancel()
-            self._task = None
+        for task in (self._task, self._dictionary_task):
+            if task is not None:
+                task.on_complete = None
+                task.cancel()
+        self._task = None
+        self._dictionary_task = None
         if self._picker is not None:
             self._picker.clear_markers()
             self.iface.mapCanvas().unsetMapTool(self._picker)
