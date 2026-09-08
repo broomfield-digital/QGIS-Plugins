@@ -34,8 +34,11 @@ class PowerProvider(QgsProcessingProvider):
         instance, which is why a fresh one is constructed per call rather than
         held on ``self``.
         """
-        # M5: alg_point, alg_regional, alg_citation.
-        return
+        from nasa_power.processing.alg_point import PowerPointAlgorithm
+        from nasa_power.processing.alg_regional import PowerRegionalAlgorithm
+
+        for algorithm in (PowerPointAlgorithm, PowerRegionalAlgorithm):
+            self.addAlgorithm(algorithm())
 
     def id(self) -> str:
         """Stable identifier. Algorithm ids are ``nasapower:<name>``."""

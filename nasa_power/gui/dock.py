@@ -21,6 +21,7 @@ while the canvas keeps whatever it was handed.
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
 
 from qgis.core import (
@@ -48,6 +49,7 @@ from nasa_power.core.display import layer_name
 from nasa_power.core.provenance import family_of, grid_for
 from nasa_power.core.qa import Level, QaReport, preflight, postfetch
 from nasa_power.gui.panels import OutputPanel, WherePanel, WhatPanel
+from nasa_power.gui.plot_widget import PowerPlotWidget
 from nasa_power.gui.qa_panel import QaPanel
 from nasa_power.gui.site_picker import SitePicker
 from nasa_power.qgis_bridge import paths
@@ -106,6 +108,10 @@ class NasaPowerDock(QgsDockWidget):
         self.progress.setVisible(False)
         layout.addWidget(self.progress)
 
+        layout.addWidget(_section("Series"))
+        self.plot = PowerPlotWidget()
+        layout.addWidget(self.plot)
+
         layout.addWidget(_section("Notes"))
         self.qa = QaPanel()
         layout.addWidget(self.qa)
@@ -122,7 +128,39 @@ class NasaPowerDock(QgsDockWidget):
         self.where.pick_requested.connect(self._set_picking)
         self.fetch_button.clicked.connect(self.fetch)
         self.cancel_button.clicked.connect(self.cancel)
+        self._connect_temporal_controller()
         self._refresh()
+
+    def _connect_temporal_controller(self) -> None:
+        """Track the Temporal Controller so the chart cursor follows the map.
+
+        Optional wiring: ``iface`` may have no controller in a headless or
+        stripped context, and a chart that cannot follow the slider is much
+        better than a dock that fails to build.
+        """
+        self._temporal_connection = None
+        controller = getattr(self.iface, "mapCanvas", None)
+        try:
+            canvas = self.iface.mapCanvas()
+            controller = canvas.temporalController()
+        except Exception:
+            return
+        if controller is None:
+            return
+        try:
+            controller.updateTemporalRange.connect(self._temporal_range_changed)
+            self._temporal_connection = controller
+        except Exception:  # pragma: no cover - signal shape varies by build
+            self._temporal_connection = None
+
+    def _temporal_range_changed(self, temporal_range) -> None:
+        """Move the chart cursor to the frame the map is showing."""
+        try:
+            begin = temporal_range.begin()
+            moment = begin.toPyDateTime() if begin.isValid() else None
+        except Exception:  # pragma: no cover - defensive
+            moment = None
+        self.plot.set_cursor(moment)
 
     # ------------------------------------------------------------------ #
     # Form state
@@ -205,24 +243,24 @@ class NasaPowerDock(QgsDockWidget):
         if report.is_blocked:
             self._message(report.blocking[0].message, Qgis.MessageLevel.Critical, report)
             return
-        if self.where.mode == "regional":
-            self._message(
-                "Gridded fetching arrives in the next milestone; sites work now.",
-                Qgis.MessageLevel.Info,
-            )
-            return
 
+        gridded = self.where.mode == "regional"
         start, end = self.what.dates()
         try:
             requests = plan_requests(
                 self.what.temporal_level,
-                "point",
+                self.where.mode,
                 self.what.selected_parameters(),
                 start=start,
                 end=end,
-                sites=self.where.sites(),
+                sites=None if gridded else self.where.sites(),
+                bbox=self.where.bbox() if gridded else None,
                 community=self.what.community.currentText(),
-                fmt="JSON",
+                # Point mode reads JSON, which is already GeoJSON and carries
+                # units, fill value and provenance in band. Gridded mode reads
+                # NetCDF, which GDAL opens as a georeferenced multi-band raster
+                # -- a point NetCDF is a 1x1 grid GDAL cannot open at all.
+                fmt="NETCDF" if gridded else "JSON",
                 time_standard=self.what.time_standard,
             )
         except Exception as exc:
@@ -265,6 +303,10 @@ class NasaPowerDock(QgsDockWidget):
 
         if cancelled:
             self._message("Fetch cancelled. Nothing was added.", Qgis.MessageLevel.Info)
+            return
+
+        if job.requests and job.requests[0].mode == "regional":
+            self._gridded_complete(job)
             return
 
         report = QaReport()
@@ -326,6 +368,7 @@ class NasaPowerDock(QgsDockWidget):
             )
             return
 
+        self._plot_observations(by_parameter)
         added = self._add_layers(by_parameter, facts_by_parameter, report, urls)
         level = Qgis.MessageLevel.Warning if report.has_error else Qgis.MessageLevel.Success
         cached = job.cached_count
@@ -333,6 +376,136 @@ class NasaPowerDock(QgsDockWidget):
         self._message(
             f"Added {added} layer(s) from {len(job.outcomes)} request(s){note}.",
             level,
+            report,
+        )
+
+    #: Beyond this many lines a chart is a smear rather than a reading.
+    MAX_PLOT_SERIES = 6
+
+    def _plot_observations(
+        self, by_parameter: dict[str, list[Observation]]
+    ) -> None:
+        """Chart one line per (parameter, site), capped so it stays readable.
+
+        Values are the converted ones, and a masked fill is simply absent
+        rather than plotted as zero -- POWER's fill is a real gap, and a zero
+        in an irradiance series reads as darkness at noon.
+        """
+        series: list[tuple[str, list[tuple[datetime, float]]]] = []
+        units = ""
+        for parameter, observations in by_parameter.items():
+            by_site: dict[str, list[tuple[datetime, float]]] = {}
+            for observation in observations:
+                if observation.value is None:
+                    continue
+                units = units or observation.units
+                by_site.setdefault(observation.site, []).append(
+                    (observation.t_start, observation.value)
+                )
+            for site, points in by_site.items():
+                points.sort(key=lambda pair: pair[0])
+                label = f"{parameter} · {site}" if len(by_site) > 1 else parameter
+                series.append((label, points))
+
+        if len(series) > self.MAX_PLOT_SERIES:
+            series = series[: self.MAX_PLOT_SERIES]
+        self.plot.set_series(series, units=units)
+
+    def _gridded_complete(self, job: FetchJob) -> None:
+        """Main thread. Mosaic each parameter's tiles into one raster layer.
+
+        One layer per parameter, always: the parents are not co-registered
+        (CERES 1 degree against MERRA-2 0.5 x 0.625), so a shared raster would
+        be misaligned. ``mosaic`` refuses a cross-family set outright.
+        """
+        from nasa_power.core.qa import QaFinding
+        from nasa_power.gdalio.mosaic import MosaicError, mosaic
+        from nasa_power.qgis_bridge.layers_raster import (
+            build_raster_layer,
+            style_raster_layer,
+        )
+
+        report = QaReport()
+        urls = [o.request.url for o in job.outcomes]
+        by_parameter: dict[str, list] = {}
+        for outcome in job.outcomes:
+            if not outcome.ok:
+                report.add(_failure_finding(outcome.request, outcome.error))
+                continue
+            by_parameter.setdefault(outcome.request.params[0], []).append(outcome)
+
+        if not by_parameter:
+            self.qa.show_report(report, urls=urls)
+            self._message(
+                "Nothing came back. See the notes below.", Qgis.MessageLevel.Warning, report
+            )
+            return
+
+        added = 0
+        for parameter, outcomes in by_parameter.items():
+            first = outcomes[0].request
+            target = Path(job.cache_dir) / "rasters" / (
+                f"{parameter}-{first.temporal}-{first.start}-{first.end}.tif"
+            )
+            try:
+                result = mosaic(
+                    [o.path for o in outcomes],
+                    target,
+                    temporal=first.temporal,
+                    parameter=parameter,
+                    sources=[],
+                )
+            except MosaicError as exc:
+                report.add(
+                    QaFinding(
+                        Level.ERROR,
+                        "MOSAIC_FAILED",
+                        f"Could not build a raster for {parameter}.",
+                        detail=str(exc),
+                        affected=(parameter,),
+                    )
+                )
+                continue
+
+            if result.dropped_bands:
+                report.add(
+                    QaFinding(
+                        Level.INFO,
+                        "YYYY13_DROPPED",
+                        f"Dropped {len(result.dropped_bands)} annual-mean band(s).",
+                        detail=(
+                            "POWER's monthly axis carries a thirteenth value per year "
+                            "that is the annual mean, not a month. Rendered as a band "
+                            "it would be a spurious frame in the animation."
+                        ),
+                        affected=tuple(str(b) for b in result.dropped_bands),
+                    )
+                )
+
+            if not self.output.add_to_map.isChecked():
+                continue
+
+            grid = grid_for(family_of(parameter))
+            name = layer_name(
+                parameter,
+                result.units,
+                first.temporal,
+                first.time_standard,
+                grid_label=grid.label if grid else "",
+                warn=report.has_error,
+            )
+            layer = build_raster_layer(result.path, name, result.intervals)
+            if self.output.auto_style.isChecked():
+                style_raster_layer(layer, parameter, result.units)
+            QgsProject.instance().addMapLayer(layer)
+            added += 1
+
+        self.qa.show_report(report, urls=urls)
+        cached = job.cached_count
+        note = f" ({cached} tile(s) from cache)" if cached else ""
+        self._message(
+            f"Added {added} raster layer(s) from {len(job.outcomes)} tile(s){note}.",
+            Qgis.MessageLevel.Warning if report.has_error else Qgis.MessageLevel.Success,
             report,
         )
 
@@ -419,6 +592,15 @@ class NasaPowerDock(QgsDockWidget):
             self._picker.clear_markers()
             self.iface.mapCanvas().unsetMapTool(self._picker)
             self._picker = None
+        # The controller outlives this dock, so a connection left behind would
+        # call into a module that a reload has already deleted.
+        controller = getattr(self, "_temporal_connection", None)
+        if controller is not None:
+            try:
+                controller.updateTemporalRange.disconnect(self._temporal_range_changed)
+            except (TypeError, RuntimeError):  # pragma: no cover - already gone
+                pass
+            self._temporal_connection = None
 
 
 def _failure_finding(request: PowerRequest, error: str):
