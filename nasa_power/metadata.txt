@@ -1,0 +1,15 @@
+[general]
+name=NASA POWER
+description=Fetch NASA POWER solar and meteorological data into QGIS as animated point and raster layers.
+about=Fetches analysis-ready solar (CERES SYN1deg / GEWEX SRB) and meteorological (MERRA-2 / GEOS) parameters from the NASA POWER REST API and adds them to the map. Point requests become long-form vector layers driven by the Temporal Controller, with an in-dock time-series chart. Regional requests are tiled to the API's 2-10 degree window, mosaicked, and written as multi-band EPSG:4326 GeoTIFFs that animate band by band. Every layer records its provenance, units and time standard. No login and no third-party Python dependencies are required.
+category=Web
+version=0.1.0
+qgisMinimumVersion=4.0
+qgisMaximumVersion=4.99
+author=David Fillmore
+email=fillmore@ucar.edu
+icon=icons/nasa_power.svg
+tags=nasa,power,ceres,merra-2,solar,irradiance,meteorology,climate,timeseries,raster,api,web
+hasProcessingProvider=yes
+experimental=True
+deprecated=False

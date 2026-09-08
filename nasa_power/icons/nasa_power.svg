@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+  <title>NASA POWER</title>
+  <!-- Graticule: the map half. -->
+  <g fill="none" stroke="#2c6e9b" stroke-width="1.1" stroke-linecap="round" opacity="0.85">
+    <rect x="1.6" y="1.6" width="20.8" height="20.8" rx="1.6"/>
+    <path d="M1.6 8.53h20.8M1.6 15.47h20.8M8.53 1.6v20.8M15.47 1.6v20.8"/>
+  </g>
+  <!-- Sun: the CERES-derived irradiance half. -->
+  <circle cx="12" cy="12" r="4.1" fill="#f2a63b"/>
+  <g stroke="#f2a63b" stroke-width="1.5" stroke-linecap="round">
+    <path d="M12 3.3v2.1M12 18.6v2.1M3.3 12h2.1M18.6 12h2.1"/>
+    <path d="M5.85 5.85l1.5 1.5M16.65 16.65l1.5 1.5M18.15 5.85l-1.5 1.5M7.35 16.65l-1.5 1.5"/>
+  </g>
+</svg>

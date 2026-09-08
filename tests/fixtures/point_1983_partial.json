@@ -1,0 +1,47 @@
+{
+ "type": "Feature",
+ "geometry": {
+  "type": "Point",
+  "coordinates": [
+   -105.27,
+   40.02,
+   1801.15
+  ]
+ },
+ "properties": {
+  "parameter": {
+   "T2M": {
+    "19830601": 11.47,
+    "19830602": 13.35,
+    "19830603": 11.81
+   }
+  }
+ },
+ "header": {
+  "title": "NASA/POWER Source Native Resolution Daily Data",
+  "api": {
+   "version": "v2.9.7",
+   "name": "POWER Daily API"
+  },
+  "sources": [
+   "MERRA2"
+  ],
+  "fill_value": -999.0,
+  "time_standard": "UTC",
+  "start": "19830601",
+  "end": "19830603"
+ },
+ "messages": [
+  "The radiation parameter(s) for times prior to 1984-1-1 are removed; radiation parameters are not available until 1984-1-1. The requested parameters would have returned no data."
+ ],
+ "parameters": {
+  "T2M": {
+   "units": "C",
+   "longname": "Temperature at 2 Meters"
+  }
+ },
+ "times": {
+  "data": 0.145,
+  "process": 0.01
+ }
+}

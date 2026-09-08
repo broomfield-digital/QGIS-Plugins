@@ -1,0 +1,74 @@
+{
+ "dict_daily_AG.json": {
+  "url": "https://power.larc.nasa.gov/api/system/manager/parameters?community=AG&temporal=daily",
+  "why": "Community AG parameter dictionary. Radiation units differ per community (RE kW-hr/m^2/day, AG MJ/m^2/day, SB W m-2) while T2M is C in all three."
+ },
+ "dict_daily_RE.json": {
+  "url": "https://power.larc.nasa.gov/api/system/manager/parameters?community=RE&temporal=daily",
+  "why": "Community RE parameter dictionary. Radiation units differ per community (RE kW-hr/m^2/day, AG MJ/m^2/day, SB W m-2) while T2M is C in all three."
+ },
+ "dict_daily_SB.json": {
+  "url": "https://power.larc.nasa.gov/api/system/manager/parameters?community=SB&temporal=daily",
+  "why": "Community SB parameter dictionary. Radiation units differ per community (RE kW-hr/m^2/day, AG MJ/m^2/day, SB W m-2) while T2M is C in all three."
+ },
+ "error_404_hourly_regional.html": {
+  "url": "https://power.larc.nasa.gov/api/temporal/hourly/regional?parameters=T2M&community=RE&latitude-min=40&latitude-max=42&longitude-min=-106&longitude-max=-104&start=20240201&end=20240201&format=JSON&time-standard=UTC",
+  "why": "hourly/regional does not exist, and it fails as a 19 KB text/html page rather than a JSON API error -- so it must be refused locally or the user sees a wall of markup with no hint the combination is unsupported."
+ },
+ "error_422_bbox.json": {
+  "url": "https://power.larc.nasa.gov/api/temporal/daily/regional?parameters=T2M&community=RE&latitude-min=40&latitude-max=41&longitude-min=-106&longitude-max=-104&start=20240201&end=20240201&format=JSON&time-standard=UTC",
+  "why": "A 1 deg bbox: 422 'Please provide at least a 2 degree range in latitude'. The binding regional constraint is a MINIMUM, not just a maximum."
+ },
+ "point_1983_partial.json": {
+  "url": "https://power.larc.nasa.gov/api/temporal/daily/point?parameters=T2M%2CALLSKY_SFC_SW_DWN&community=RE&latitude=40.02&longitude=-105.27&start=19830601&end=19830603&format=JSON&time-standard=UTC",
+  "why": "HTTP 200 that silently OMITS a requested parameter. Radiation starts 1984-01-01, but with a met parameter present POWER returns 200 with only T2M in properties.parameter plus a note in messages[]. A parser keyed on the requested list KeyErrors here."
+ },
+ "point_daily_2param.json": {
+  "url": "https://power.larc.nasa.gov/api/temporal/daily/point?parameters=T2M%2CALLSKY_SFC_SW_DWN&community=RE&latitude=40.02&longitude=-105.27&start=20240201&end=20240203&format=JSON&time-standard=UTC",
+  "why": "The baseline point response. Two parameters from two different parents, so header.sources is ['MERRA2','SYN1DEG'] and attributable to neither -- the case that forces family-splitting."
+ },
+ "point_hourly_lst.json": {
+  "url": "https://power.larc.nasa.gov/api/temporal/hourly/point?parameters=ALLSKY_SFC_SW_DWN&community=RE&latitude=40.02&longitude=-105.27&start=20240601&end=20240601&format=JSON&time-standard=LST",
+  "why": "The same hour in Local Solar Time. Pairs with point_hourly_utc.json to pin the ~7 h phase shift at Boulder -- the silent error POWER's own default produces."
+ },
+ "point_hourly_utc.json": {
+  "url": "https://power.larc.nasa.gov/api/temporal/hourly/point?parameters=ALLSKY_SFC_SW_DWN&community=RE&latitude=40.02&longitude=-105.27&start=20240601&end=20240601&format=JSON&time-standard=UTC",
+  "why": "Hourly solar in UTC. Units are Wh/m^2 (NOT kW-hr/m^2/day), and the Wh/m^2 -> W m-2 conversion is x1, not x3600."
+ },
+ "point_monthly_yyyy13.json": {
+  "url": "https://power.larc.nasa.gov/api/temporal/monthly/point?parameters=T2M&community=RE&latitude=40.02&longitude=-105.27&start=2020&end=2021&format=JSON&time-standard=UTC",
+  "why": "Monthly keys are YYYYMM and YYYY13 is the ANNUAL MEAN, not a month. Left in, it is a spurious point every 13th step. Also pins that monthly takes year-only dates."
+ },
+ "point_solar_2000.json": {
+  "url": "https://power.larc.nasa.gov/api/temporal/daily/point?parameters=ALLSKY_SFC_SW_DWN&community=RE&latitude=40.02&longitude=-105.27&start=20001230&end=20001231&format=JSON&time-standard=UTC",
+  "why": "Solar before the transition: header.sources is ['SRB'], not CERES."
+ },
+ "point_solar_2001.json": {
+  "url": "https://power.larc.nasa.gov/api/temporal/daily/point?parameters=ALLSKY_SFC_SW_DWN&community=RE&latitude=40.02&longitude=-105.27&start=20010101&end=20010102&format=JSON&time-standard=UTC",
+  "why": "Solar after the transition: header.sources is ['SYN1DEG']. With the 2000 fixture this bisects the SRB -> CERES seam to 2001-01-01."
+ },
+ "regional_daily_fc.json": {
+  "url": "https://power.larc.nasa.gov/api/temporal/daily/regional?parameters=T2M&community=RE&latitude-min=40&latitude-max=42&longitude-min=-106&longitude-max=-104&start=20240201&end=20240201&format=JSON&time-standard=UTC",
+  "why": "Regional JSON is a GeoJSON FeatureCollection of cell CENTRES. Used to cross-check the NetCDF raster's georeferencing against a second wire format that must agree cell for cell."
+ },
+ "regional_daily_t2m_tileN.nc": {
+  "url": "https://power.larc.nasa.gov/api/temporal/daily/regional?parameters=T2M&community=RE&latitude-min=40&latitude-max=42&longitude-min=-106&longitude-max=-104&start=20240201&end=20240203&format=NETCDF&time-standard=UTC",
+  "why": "North tile of a MERRA-2 pair. Its 0.5 deg grid has a node exactly on the lat-40.0 boundary, so it shares an edge row with the south tile."
+ },
+ "regional_daily_t2m_tileS.nc": {
+  "url": "https://power.larc.nasa.gov/api/temporal/daily/regional?parameters=T2M&community=RE&latitude-min=38&latitude-max=40&longitude-min=-106&longitude-max=-104&start=20240201&end=20240203&format=NETCDF&time-standard=UTC",
+  "why": "South tile. Mosaicking these two must yield 9 rows, not 10."
+ },
+ "regional_monthly_t2m.nc": {
+  "url": "https://power.larc.nasa.gov/api/temporal/monthly/regional?parameters=T2M&community=RE&latitude-min=40&latitude-max=42&longitude-min=-106&longitude-max=-104&start=2020&end=2021&format=NETCDF&time-standard=UTC",
+  "why": "The YYYY13 trap on the RASTER path, and the highest-consequence one: 26 bands for 24 months, NETCDF_DIM_time carrying 202013/202113, and NO time#units attribute at all, so there is nothing to CF-decode against."
+ },
+ "regional_solar_tileN.nc": {
+  "url": "https://power.larc.nasa.gov/api/temporal/daily/regional?parameters=ALLSKY_SFC_SW_DWN&community=RE&latitude-min=40&latitude-max=42&longitude-min=-106&longitude-max=-104&start=20240201&end=20240203&format=NETCDF&time-standard=UTC",
+  "why": "CERES solar on its native 1.0 deg grid, centred on half-degrees -- so an integer tile boundary falls BETWEEN cells and nothing is duplicated. The counter-example to the MERRA-2 pair, and proof the two families are not co-registered."
+ },
+ "regional_solar_tileS.nc": {
+  "url": "https://power.larc.nasa.gov/api/temporal/daily/regional?parameters=ALLSKY_SFC_SW_DWN&community=RE&latitude-min=38&latitude-max=40&longitude-min=-106&longitude-max=-104&start=20240201&end=20240203&format=NETCDF&time-standard=UTC",
+  "why": "South solar tile. Mosaicking with tileN must yield 4 rows and no duplicate."
+ }
+}

@@ -1,0 +1,44 @@
+{
+ "type": "Feature",
+ "geometry": {
+  "type": "Point",
+  "coordinates": [
+   -105.27,
+   40.02,
+   1801.15
+  ]
+ },
+ "properties": {
+  "parameter": {
+   "ALLSKY_SFC_SW_DWN": {
+    "20001230": 1.0536,
+    "20001231": 2.5066
+   }
+  }
+ },
+ "header": {
+  "title": "NASA/POWER Source Native Resolution Daily Data",
+  "api": {
+   "version": "v2.9.7",
+   "name": "POWER Daily API"
+  },
+  "sources": [
+   "SRB"
+  ],
+  "fill_value": -999.0,
+  "time_standard": "UTC",
+  "start": "20001230",
+  "end": "20001231"
+ },
+ "messages": [],
+ "parameters": {
+  "ALLSKY_SFC_SW_DWN": {
+   "units": "kW-hr/m^2/day",
+   "longname": "All Sky Surface Shortwave Downward Irradiance"
+  }
+ },
+ "times": {
+  "data": 0.094,
+  "process": 0.01
+ }
+}

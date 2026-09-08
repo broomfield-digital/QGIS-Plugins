@@ -1,0 +1,6 @@
+{
+ "header": "The POWER Daily API failed to complete your request; please review the errors below and the POWER Docs (https://power.larc.nasa.gov/docs/).",
+ "messages": [
+  "Please provide at least a 2 degree range in latitude; otherwise use the point endpoint."
+ ]
+}

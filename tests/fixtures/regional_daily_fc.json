@@ -1,0 +1,300 @@
+{
+ "features": [
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -105.625,
+     40.0,
+     2714.17
+    ]
+   },
+   "properties": {
+    "parameter": {
+     "T2M": {
+      "20240201": -0.6
+     }
+    }
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -105.0,
+     40.0,
+     1801.15
+    ]
+   },
+   "properties": {
+    "parameter": {
+     "T2M": {
+      "20240201": 7.25
+     }
+    }
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -104.375,
+     40.0,
+     1511.21
+    ]
+   },
+   "properties": {
+    "parameter": {
+     "T2M": {
+      "20240201": 7.62
+     }
+    }
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -105.625,
+     40.5,
+     2669.67
+    ]
+   },
+   "properties": {
+    "parameter": {
+     "T2M": {
+      "20240201": -0.55
+     }
+    }
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -105.0,
+     40.5,
+     1772.9
+    ]
+   },
+   "properties": {
+    "parameter": {
+     "T2M": {
+      "20240201": 7.04
+     }
+    }
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -104.375,
+     40.5,
+     1470.98
+    ]
+   },
+   "properties": {
+    "parameter": {
+     "T2M": {
+      "20240201": 7.38
+     }
+    }
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -105.625,
+     41.0,
+     2413.74
+    ]
+   },
+   "properties": {
+    "parameter": {
+     "T2M": {
+      "20240201": 0.57
+     }
+    }
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -105.0,
+     41.0,
+     1931.04
+    ]
+   },
+   "properties": {
+    "parameter": {
+     "T2M": {
+      "20240201": 5.24
+     }
+    }
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -104.375,
+     41.0,
+     1642.35
+    ]
+   },
+   "properties": {
+    "parameter": {
+     "T2M": {
+      "20240201": 6.75
+     }
+    }
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -105.625,
+     41.5,
+     2181.0
+    ]
+   },
+   "properties": {
+    "parameter": {
+     "T2M": {
+      "20240201": 2.08
+     }
+    }
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -105.0,
+     41.5,
+     1937.87
+    ]
+   },
+   "properties": {
+    "parameter": {
+     "T2M": {
+      "20240201": 4.45
+     }
+    }
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -104.375,
+     41.5,
+     1595.36
+    ]
+   },
+   "properties": {
+    "parameter": {
+     "T2M": {
+      "20240201": 6.52
+     }
+    }
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -105.625,
+     42.0,
+     2074.4
+    ]
+   },
+   "properties": {
+    "parameter": {
+     "T2M": {
+      "20240201": 2.84
+     }
+    }
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -105.0,
+     42.0,
+     1691.46
+    ]
+   },
+   "properties": {
+    "parameter": {
+     "T2M": {
+      "20240201": 5.61
+     }
+    }
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -104.375,
+     42.0,
+     1412.92
+    ]
+   },
+   "properties": {
+    "parameter": {
+     "T2M": {
+      "20240201": 6.06
+     }
+    }
+   }
+  }
+ ],
+ "header": {
+  "title": "NASA/POWER Source Native Resolution Daily Data",
+  "api": {
+   "version": "v2.9.7",
+   "name": "POWER Daily API"
+  },
+  "sources": [
+   "MERRA2"
+  ],
+  "fill_value": -999.0,
+  "time_standard": "UTC",
+  "start": "20240201",
+  "end": "20240201"
+ },
+ "messages": [],
+ "parameters": {
+  "T2M": {
+   "units": "C",
+   "longname": "Temperature at 2 Meters"
+  }
+ },
+ "times": {
+  "data": 0.078,
+  "process": 0.01
+ },
+ "type": "FeatureCollection"
+}
