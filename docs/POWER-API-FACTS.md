@@ -4,9 +4,11 @@ Every row here was verified against the live API or against this machine's QGIS 
 Where a fact is pinned by a committed fixture or a test, the table names it — a fact with no test is a
 fact that will quietly stop being true.
 
-**API versions seen:** v2.9.4 / v2.9.5 (2026-07-15, via the DAVINCI project) → v2.9.7 (daily) and
-v2.9.8 (monthly) on 2026-09-07. The version differs **per endpoint** and drifts, so nothing here
-hardcodes it; `core/citation.py` reads `header.api.version` from each response.
+**API versions seen:** v2.9.4 / v2.9.5 (2026-07-15, via the DAVINCI project) → on 2026-09-08, in a
+single session, **three different versions at once**: hourly **v2.10.0**, daily **v2.9.7**, monthly
+**v2.9.8**. The version differs per endpoint *and* drifts, so nothing here hardcodes it;
+`core/citation.py` reads `header.api.version` from each response, and `tests/live` logs the versions
+rather than asserting them.
 
 ---
 
@@ -48,6 +50,7 @@ Verified 2026-09-07 unless noted.
 | P-8 | **The same trap on the raster path, and worse.** A 2-year monthly regional NetCDF has **26 bands**, `NETCDF_DIM_time` carrying `202013`/`202113`, and **no `time#units` attribute at all** — so there is no CF epoch to decode against and the raw values simply *are* `YYYYMM`. A naive `BuildVRT → Translate` renders two annual means as if they were months | `gdalio/cf.decode_monthly_stamp`; the mosaic writes only the keep-list. Fixture `regional_monthly_t2m.nc` |
 | P-9 | Climatology keys are `JAN`…`DEC` **plus `ANN`** — the same trap under another name — and its header reports `time_standard: LST` | `timeaxis` handles both. Climatology is otherwise deferred |
 | P-10 | **`time-standard` defaults to LST, not UTC.** Measured at Boulder for 2024-06-01 hourly `ALLSKY_SFC_SW_DWN`: the identical peak value **911.15** appears at `2024060117` under UTC and `2024060110` under LST — a clean 7-hour phase shift. Pairing LST data against a UTC model silently moves the diurnal cycle | Every request emits `time-standard`; UTC is the default; `qa.TIME_STANDARD_DRIFT` checks the **returned** `header.time_standard`, not the requested one. Fixtures `point_hourly_utc.json` / `point_hourly_lst.json` |
+| P-10b | **An LST key is local solar wall-clock, not an instant.** Stamped as UTC it puts the layer ~7 h from where the Temporal Controller shows it. POWER quantizes LST to **whole hours** (its keys are `YYYYMMDDHH`), so the offset is `round(longitude / 15)`, not the exact `longitude / 15` — at Boulder the exact value is 7 h 1 min 5 s and using it unrounded leaves the two series 65 s apart forever | `decode.lst_offset` shifts LST responses to real instants; values are untouched. With it, the UTC and LST fixtures decode to identical timestamps |
 | P-19 | Adjacent timesteps must use **half-open** intervals. With closed intervals two neighbouring days both match an instant on their shared boundary and the QGIS animation flickers between them | `timeaxis` returns `[start, end)`; the raster path uses `QgsDateTimeRange(t0, t1, True, False)` |
 | P-20 | The CF epoch varies **per parameter and per era**: `days since 1980-12-31` (MERRA-2 T2M), `days since 2000-12-31` (CERES solar 2024), `days since 1984-01-01` (CERES solar 1985), `hours since …` for hourly | `gdalio/cf` decodes each response against its own `time#units`; never merge on raw index |
 
@@ -60,7 +63,7 @@ Verified 2026-09-07 unless noted.
 | P-13 | Units depend on **(parameter, temporal, community)**. Daily `ALLSKY_SFC_SW_DWN` is `kW-hr/m^2/day` (RE), `MJ/m^2/day` (AG), `W m-2` (SB); `T2M` is `C` in all three. A table keyed on `(parameter, temporal)` — DAVINCI's `POWER_CATALOG` — is wrong the first time a user changes community | `core/units.py` is keyed on the **returned units string**, which every response carries. 23 distinct strings observed across the three daily dictionaries |
 | P-14 | **`Wh/m^2` → `W m-2` is ×1, not ×3600** — a watt-hour accumulated over one hour *is* a watt. The original design assumed hourly solar arrived as `W/m^2`; it does not | `units.UnitRule.per_accumulation`, dividing by `STEP_HOURS[temporal]` |
 | P-15 | `T2M_MAX` / `T2M_MIN` **do not exist hourly** (422 `"One of your parameters is incorrect"`) — they are daily aggregates | `dictionary.DAILY_ONLY_PARAMETERS` + `qa.PARAM_NOT_AT_TEMPORAL`, refused locally |
-| P-31 | `valid_min` / `valid_max` arrive free in the response attributes, in **native** units (`T2M`: −125…80) | `qa.check_valid_range`; also reused as symbology limits |
+| P-31 | `valid_min` / `valid_max` arrive free — but **only in the NetCDF**, as band metadata, in **native** units (`T2M`: −125…80). The JSON responses carry no such attribute at all, so the point path cannot check against it | `gdalio.mosaic` reads them and counts offending pixels; `qa.check_valid_range` reports. An earlier version of that function walked `Observation`s and so could never fire — the path with the values had no range, and the path with the range built no Observations |
 | — | `ALLSKY_SFC_UV_INDEX` has units `'W m-2 x 40'`. The served value **is** the index; dividing by 40 would give irradiance but no longer the quantity asked for | `units.UNIT_RULES` maps it to `UV index` with no arithmetic |
 
 ### Provenance — the ones that put a wrong label on a right number
@@ -122,6 +125,9 @@ Measured on `QGIS-final-4_2_2.app` — Qgis 4.2.2 "Belém do Pará", Qt 6.11.1, 
 | `Qgis.PlotAxisType` has **only** `Categorical` and `Interval` | There is no datetime axis in the native charting API | `plot_widget` uses Categorical with thinned labels, Interval with a month index |
 | **QtWebEngine is absent from the bundle** | So DataPlotly's plot panel cannot render here at all | Native `QgsLineChartPlot`; bundled matplotlib 3.11.1 works under `QT_API='PyQt6'` and stays a guarded fallback |
 | Reload strips the plugin from `sys.modules` and `sys.path` | Anything still registered outlives the module that made it: duplicate icons, duplicate toolbox groups, stale-pointer crashes | Full teardown in `unload()`; every milestone verifies reload-twice-and-count |
+| **`QgsTask.progressChanged` carries a `double`; `QProgressBar.setValue` takes an `int`.** Connected directly, PyQt6 raises `TypeError` on every tick | measured | The dock connects through a lambda that casts |
+| **A `QgsRectangle` is normalised before you see it.** An extent dragged across the antimeridian arrives as its *complement*: `170..-170` becomes `-170..170`, a 340° box the long way round that tiles into 34 requests | measured via `qgis_process` | `qa.ANTIMERIDIAN_SUSPECT` warns above a 180° longitude span; `qa.MANY_TILES` above 24 tiles (a full CONUS is 18 and stays a plain note) |
+| **A derived file needs the same identity as its source.** Naming a mosaic `{parameter}-{temporal}-{start}-{end}.tif` omits the extent, community and time standard — so refetching under a different community overwrote the GeoTIFF a live layer was drawing, and a layer labelled `[kW-hr/m^2/day]` rendered `MJ/m^2/day`, wrong by 3.6×, into a saved project | measured | `gui.dock._raster_name` hashes the request URLs, the same identity `api.cache_path` uses |
 | Headless `qgisSettingsDirPath()` drops the `QGIS4` segment | So a re-derived cache path differs between the desktop and `qgis_process`, and every CLI run would re-fetch what the dock already downloaded | `paths.resolve_cache_dir()` resolves once into a persisted setting |
 | `QgsVectorLayerTemporalProperties` reads **fields, not field names** | So a wide layout with one column per timestep cannot animate at all; and `InstantFromField` + a fixed duration widens the window and over-selects | Long form + `FeatureDateTimeStartAndEndFromFields` |
 

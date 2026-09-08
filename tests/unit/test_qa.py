@@ -733,87 +733,45 @@ class CellSnapScopeTests(unittest.TestCase):
 
 
 class ValidRangeTests(unittest.TestCase):
-    """``check_valid_range`` compares against the range the response declared.
+    """``check_valid_range`` reports pixels outside the range POWER declared.
 
-    POWER ships valid_min/valid_max in **native** units, so the check has to be
-    made before conversion. Checking the canonical value instead would flag
-    every Celsius temperature the moment it became Kelvin.
+    The range lives in the **NetCDF band metadata** and nowhere else -- measured
+    on ``regional_daily_t2m_tileN.nc``, ``T2M`` declares ``valid_min = -125``
+    and ``valid_max = 80``, while the JSON responses carry no such attribute at
+    all. So the count comes from the raster path.
+
+    An earlier version of this function walked ``Observation``s, which meant it
+    could never fire: the code path that has the values has no range, and the
+    path that has the range does not build Observations.
     """
 
-    def _series(self, *values: float) -> list[Observation]:
-        return [_observation(v) for v in values]
+    RANGE = (-125.0, 80.0)
 
-    def test_a_value_below_the_minimum_is_an_error(self):
-        report = check_valid_range(self._series(-80.0, 10.0), -60.0, 60.0, "T2M")
+    def test_pixels_outside_the_range_are_an_error(self):
+        report = check_valid_range("T2M", self.RANGE, out_of_range=7)
         finding = _finding(report, "VALID_RANGE")
         self.assertEqual(finding.level, Level.ERROR)
         self.assertEqual(finding.affected, ("T2M",))
+        self.assertIn("7", finding.message)
 
-    def test_a_value_above_the_maximum_is_an_error(self):
-        report = check_valid_range(self._series(10.0, 90.0), -60.0, 60.0, "T2M")
-        self.assertIn("VALID_RANGE", report.codes())
+    def test_no_offending_pixels_is_silent(self):
+        self.assertEqual(check_valid_range("T2M", self.RANGE, 0).codes(), [])
 
-    def test_values_inside_the_range_are_silent(self):
-        report = check_valid_range(self._series(-59.9, 0.0, 59.9), -60.0, 60.0, "T2M")
-        self.assertEqual(report.codes(), [])
+    def test_a_response_declaring_no_range_is_silent(self):
+        # Not every parameter declares one, and absence is not a fault.
+        self.assertEqual(check_valid_range("T2M", None, 5).codes(), [])
 
-    def test_the_bounds_themselves_are_inside(self):
-        # Declared bounds are inclusive; flagging them would fire on every
-        # clipped field POWER serves.
-        report = check_valid_range(self._series(-60.0, 60.0), -60.0, 60.0, "T2M")
-        self.assertEqual(report.codes(), [])
+    def test_the_declared_range_reaches_the_message(self):
+        finding = _finding(check_valid_range("T2M", self.RANGE, 1), "VALID_RANGE")
+        self.assertIn("-125", finding.message)
+        self.assertIn("80", finding.message)
 
-    def test_the_check_is_on_native_values_not_converted_ones(self):
-        # 0 C converts to 273.15 K. POWER declares valid_min/valid_max in
-        # NATIVE units, so against -60..60 the native value is comfortably
-        # inside while the canonical one is far outside. A check on `value`
-        # would flag every ordinary temperature POWER serves.
-        #
-        # _observation() sets value == native_value, so this builds the pair
-        # explicitly -- otherwise the two columns cannot be told apart.
-        moment = datetime(2024, 2, 1, tzinfo=timezone.utc)
-        observation = Observation(
-            site="boulder",
-            parameter="T2M",
-            t_start=moment,
-            t_end=moment,
-            value=273.15,
-            units="K",
-            native_value=0.0,
-            native_units="C",
-            longitude=LON,
-            latitude=LAT,
-            elevation_m=None,
-            cell_longitude=None,
-            cell_latitude=None,
-            family=Family.METEOROLOGY,
-            temporal="daily",
+    def test_the_url_is_carried_so_the_request_is_identifiable(self):
+        finding = _finding(
+            check_valid_range("T2M", self.RANGE, 1, url="https://example.invalid/x"),
+            "VALID_RANGE",
         )
-        self.assertEqual(check_valid_range([observation], -60.0, 60.0, "T2M").codes(), [])
-
-    def test_a_range_with_no_bounds_declared_is_skipped(self):
-        self.assertEqual(check_valid_range(self._series(1e9), None, None, "T2M").codes(), [])
-
-    def test_a_one_sided_range_still_binds(self):
-        self.assertIn("VALID_RANGE", check_valid_range(self._series(-80.0), -60.0, None, "T2M").codes())
-        self.assertEqual(check_valid_range(self._series(-80.0), None, 60.0, "T2M").codes(), [])
-
-    def test_other_parameters_are_not_checked_against_this_range(self):
-        # One call checks one parameter; a solar value must not be measured
-        # against a temperature range that happens to be in scope.
-        series = [_observation(-80.0, parameter="ALLSKY_SFC_SW_DWN")]
-        self.assertEqual(check_valid_range(series, -60.0, 60.0, "T2M").codes(), [])
-
-    def test_masked_values_are_not_flagged(self):
-        # Fill is already None by this point; counting it as out of range would
-        # report every ocean cell of a land-only parameter twice.
-        self.assertEqual(check_valid_range([_observation(None)], -60.0, 60.0, "T2M").codes(), [])
-
-    def test_the_finding_carries_the_url_when_given_one(self):
-        url = "https://power.larc.nasa.gov/api/temporal/test"
-        report = check_valid_range(self._series(-80.0), -60.0, 60.0, "T2M", url)
-        self.assertEqual(_finding(report, "VALID_RANGE").url, url)
-
+        self.assertEqual(finding.url, "https://example.invalid/x")
 
 class ReportSeverityBoundaryTests(unittest.TestCase):
     """``has_error`` is the layer's warning marker; its threshold is ERROR."""

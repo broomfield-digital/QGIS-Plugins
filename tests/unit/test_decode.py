@@ -263,17 +263,49 @@ class HourlyTimeStandardTest(unittest.TestCase):
         self.assertEqual(self.utc_facts.time_standard, "UTC")
         self.assertEqual(self.lst_facts.time_standard, "LST")
 
-    def test_the_same_peak_value_sits_seven_hours_apart(self):
-        # Measured 2026-09-07 at Boulder for 2024-06-01: peak 911.15 at
-        # ...17 in UTC and at ...10 in LST. Same number, different timestamp --
-        # nothing in the values distinguishes the two series.
+    def test_the_wire_keys_really_do_sit_seven_hours_apart(self):
+        # The trap, at the wire. Measured 2026-09-07 at Boulder for 2024-06-01:
+        # the peak 911.15 is keyed ...17 in the UTC response and ...10 in the
+        # LST one. Same number, different key -- nothing in the values
+        # distinguishes the two series.
+        utc_keys = load_json("point_hourly_utc.json")["properties"]["parameter"][
+            "ALLSKY_SFC_SW_DWN"
+        ]
+        lst_keys = load_json("point_hourly_lst.json")["properties"]["parameter"][
+            "ALLSKY_SFC_SW_DWN"
+        ]
+        utc_key = max(utc_keys, key=utc_keys.get)
+        lst_key = max(lst_keys, key=lst_keys.get)
+        self.assertAlmostEqual(utc_keys[utc_key], 911.15, places=9)
+        self.assertAlmostEqual(lst_keys[lst_key], 911.15, places=9)
+        self.assertEqual(int(utc_key[-2:]), 17)
+        self.assertEqual(int(lst_key[-2:]), 10)
+
+    def test_decoding_puts_both_series_on_the_same_instants(self):
+        # ...and the decoder closes it. An LST key is local solar wall clock;
+        # stamping it as UTC would place the layer seven hours from where the
+        # Temporal Controller shows it. Both series must describe the same
+        # instants while their values stay untouched.
         utc_peak = self._peak(self.utc)
         lst_peak = self._peak(self.lst)
         self.assertAlmostEqual(utc_peak.value, lst_peak.value, places=9)
         self.assertAlmostEqual(utc_peak.value, 911.15, places=9)
+        self.assertEqual(utc_peak.t_start, lst_peak.t_start)
         self.assertEqual(utc_peak.t_start.hour, 17)
-        self.assertEqual(lst_peak.t_start.hour, 10)
-        self.assertEqual(utc_peak.t_start.hour - lst_peak.t_start.hour, 7)
+
+    def test_the_offset_is_whole_hours_because_the_keys_are(self):
+        # POWER keys hourly data YYYYMMDDHH, so its LST is quantized to whole
+        # hours. Boulder's exact offset is 7 h 1 min 5 s; using it unrounded
+        # would leave the two series 65 seconds apart forever.
+        from nasa_power.core.decode import lst_offset
+
+        self.assertEqual(lst_offset(-105.27), timedelta(hours=-7))
+        self.assertEqual(lst_offset(0.0), timedelta(0))
+        self.assertEqual(lst_offset(151.2), timedelta(hours=10))  # Sydney
+        for longitude in (-179.0, -90.0, -7.5, 7.5, 90.0, 179.0):
+            self.assertEqual(
+                lst_offset(longitude).total_seconds() % 3600.0, 0.0
+            )
 
     def test_hourly_irradiance_is_relabelled_not_rescaled(self):
         # Wh/m^2 -> W m-2 is x1: a watt-hour accumulated over one hour IS a

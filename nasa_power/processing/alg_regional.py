@@ -26,9 +26,8 @@ from qgis.core import (
 from nasa_power.core.api import fetch_to_cache, plan_requests
 from nasa_power.core.citation import build_citation
 from nasa_power.core.decode import ResponseFacts
-from nasa_power.core.fetcher import UrllibFetcher
-from nasa_power.core.provenance import family_of, grid_for
-from nasa_power.core.qa import Level, QaFinding, QaReport, preflight
+from nasa_power.core.provenance import expected_sources, family_of, grid_for
+from nasa_power.core.qa import Level, QaFinding, QaReport, check_valid_range, preflight
 from nasa_power.gdalio.mosaic import MosaicError, mosaic
 from nasa_power.processing.base import PowerAlgorithm
 from nasa_power.qgis_bridge import paths
@@ -123,7 +122,7 @@ class PowerRegionalAlgorithm(PowerAlgorithm):
         feedback.pushInfo(f"{len(requests)} tile request(s) planned.")
 
         cache_dir = paths.resolve_cache_dir()
-        fetcher = UrllibFetcher()
+        fetcher = self.fetcher(feedback)
         tiles = []
         for index, request in enumerate(requests):
             if feedback.isCanceled():
@@ -138,16 +137,27 @@ class PowerRegionalAlgorithm(PowerAlgorithm):
 
         output = self.parameterAsOutputLayer(parameters, P_OUTPUT, context)
         try:
+            # NetCDF carries no `header.sources`, unlike the JSON path, so
+            # the parent is predicted from the parameter family and the window
+            # -- which is also what surfaces a window straddling the 2001
+            # SRB-to-CERES seam.
             result = mosaic(
                 tiles,
                 output,
                 temporal=common["temporal"],
                 parameter=parameter,
-                sources=[],
+                sources=expected_sources(
+                    family_of(parameter), common["start"], common["end"]
+                ),
             )
         except MosaicError as exc:
             raise QgsProcessingException(str(exc)) from exc
 
+        report.extend(
+            check_valid_range(
+                parameter, result.valid_range, result.out_of_range, requests[0].url
+            )
+        )
         if result.dropped_bands:
             report.add(
                 QaFinding(
@@ -161,9 +171,12 @@ class PowerRegionalAlgorithm(PowerAlgorithm):
                     affected=tuple(str(b) for b in result.dropped_bands),
                 )
             )
-            self.report(report, feedback)
+        self.report(report, feedback)
 
-        self._write_sidecar(output, parameter, common, result, requests)
+        # The real report and the sources the mosaic recorded, not an empty
+        # one: a sidecar that omits the findings the run just printed is a
+        # layer quietly disagreeing with its own provenance.
+        self._write_sidecar(output, parameter, common, result, requests, report)
         feedback.pushInfo(
             f"Wrote {result.band_count} band(s), {result.width}x{result.height}, "
             f"EPSG:4326, units {result.units or 'unreported'}."
@@ -172,7 +185,9 @@ class PowerRegionalAlgorithm(PowerAlgorithm):
 
     # ------------------------------------------------------------------ #
 
-    def _write_sidecar(self, output, parameter, common, result, requests) -> None:
+    def _write_sidecar(
+        self, output, parameter, common, result, requests, report: QaReport
+    ) -> None:
         """Write a ``.qmd`` beside the raster carrying provenance and citation.
 
         QGIS reads a ``.qmd`` automatically when the raster is loaded, so the
@@ -190,11 +205,12 @@ class PowerRegionalAlgorithm(PowerAlgorithm):
         facts = ResponseFacts(
             time_standard=common["time_standard"],
             units={parameter: result.units},
+            sources=tuple(result.sources),
         )
         layer.setMetadata(
             build_metadata(
                 facts,
-                QaReport(),
+                report,
                 title=Path(output).stem,
                 parameters=[parameter],
                 temporal=common["temporal"],

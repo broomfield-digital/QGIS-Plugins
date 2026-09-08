@@ -429,6 +429,9 @@ class HistoryTests(QgisTestCase):
             title="t",
             parameters=["T2M", "ALLSKY_SFC_SW_DWN"],
             temporal="daily",
+            # Native units are the default now; this test is about the
+            # conversion arithmetic, so it asks for it.
+            converted=True,
         )
         line = history_for(md, "ALLSKY_SFC_SW_DWN")
         self.assertIn("kW-hr/m^2/day", line)
@@ -443,6 +446,7 @@ class HistoryTests(QgisTestCase):
             title="t",
             parameters=["T2M", "ALLSKY_SFC_SW_DWN"],
             temporal="daily",
+            converted=True,
         )
         line = history_for(md, "T2M")
         self.assertIn("+273.15", line)
@@ -459,6 +463,7 @@ class HistoryTests(QgisTestCase):
             title="t",
             parameters=["ALLSKY_SFC_SW_DWN"],
             temporal="hourly",
+            converted=True,
         )
         line = history_for(md, "ALLSKY_SFC_SW_DWN")
         self.assertIn("Wh/m^2", line)
@@ -627,6 +632,9 @@ class ApplyMetadataTests(QgisTestCase):
             parameters=["T2M", "ALLSKY_SFC_SW_DWN"],
             temporal="daily",
             urls=[url],
+            # The conversion factor is what this asserts survives the round
+            # trip, so the conversion has to have happened.
+            converted=True,
         )
 
         with tempfile.TemporaryDirectory() as tmp:

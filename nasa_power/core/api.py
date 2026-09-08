@@ -33,8 +33,10 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import math
 import re
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -163,6 +165,27 @@ def _check_bbox(bbox: Mapping[str, float]) -> None:
     missing = {"lat_min", "lat_max", "lon_min", "lon_max"} - set(bbox)
     if missing:
         raise PowerValidationError(f"bbox is missing {', '.join(sorted(missing))}.")
+
+    # On the globe, and the right way round. POWER answers an off-globe or
+    # inverted box with a 422, and an extent crossing the antimeridian arrives
+    # here as lon_min > lon_max -- which subtracts to a negative span and would
+    # otherwise be reported as "needs at least a 2 degree range".
+    for axis, lo_key, hi_key, limit in (
+        ("latitude", "lat_min", "lat_max", 90.0),
+        ("longitude", "lon_min", "lon_max", 180.0),
+    ):
+        lo, hi = bbox[lo_key], bbox[hi_key]
+        if hi <= lo:
+            raise PowerValidationError(
+                f"The extent's {axis} range runs backwards ({lo:g} to {hi:g}). "
+                f"POWER takes a plain box in degrees; an extent crossing the "
+                f"antimeridian has to be fetched as two."
+            )
+        if lo < -limit or hi > limit:
+            raise PowerValidationError(
+                f"The extent's {axis} range ({lo:g} to {hi:g}) is off the globe; "
+                f"POWER accepts -{limit:g} to {limit:g}."
+            )
 
     for axis, lo_key, hi_key in (
         ("latitude", "lat_min", "lat_max"),
@@ -407,7 +430,10 @@ def count_requests(
             list(family_groups(params).values()) if split_by_family else [list(params)]
         )
         per_site = sum(len(_chunk(group, POINT_MAX_PARAMS)) for group in groups)
-        return per_site * max(len(sites or ()), 1)
+        # No sites means no requests. Flooring at one made the dock's badge
+        # promise "1 request." with an empty site list, and then refuse the
+        # fetch with an internal message when the button was pressed.
+        return per_site * len(sites or ())
     if bbox is None:
         return 0
     return len(tile_bbox(bbox)) * len(params)
@@ -666,7 +692,10 @@ def fetch_to_cache(
     # write must never leave a truncated file that a later run -- which never
     # re-fetches on a hit -- would read as valid data forever.
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".partial")
+    # Unique per writer: a fixed "<name>.partial" lets two threads fetching the
+    # same URL truncate each other's temp file, which is exactly the torn cache
+    # entry the atomic write exists to prevent.
+    tmp = path.with_name(f"{path.name}.{os.getpid()}-{threading.get_ident():x}.partial")
     try:
         tmp.write_bytes(body)
         tmp.replace(path)

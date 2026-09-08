@@ -34,7 +34,7 @@ from qgis.PyQt.QtCore import QDateTime, QMetaType, QTimeZone
 from nasa_power.core.api import fetch_to_cache, plan_requests
 from nasa_power.core.citation import build_citation
 from nasa_power.core.decode import parse_point_response
-from nasa_power.core.fetcher import UrllibFetcher
+from nasa_power.core.errors import PowerError
 from nasa_power.core.qa import QaReport, postfetch, preflight
 from nasa_power.processing.base import PowerAlgorithm
 from nasa_power.qgis_bridge import paths
@@ -169,15 +169,25 @@ class PowerPointAlgorithm(PowerAlgorithm):
 
         convert_si = self.parameterAsBool(parameters, P_CONVERT_SI, context)
         cache_dir = paths.resolve_cache_dir()
-        fetcher = UrllibFetcher()
+        fetcher = self.fetcher(feedback)
         written = 0
         citation = ""
 
         for index, request in enumerate(requests):
             if feedback.isCanceled():
                 break
-            path, was_cached = fetch_to_cache(request, cache_dir, fetcher)
-            payload = json.loads(Path(path).read_bytes())
+            try:
+                path, was_cached = fetch_to_cache(request, cache_dir, fetcher)
+                payload = json.loads(Path(path).read_bytes())
+            except (PowerError, OSError, ValueError) as exc:
+                # One failed request must not lose the others, and must not
+                # leave a half-written sink behind a raw traceback.
+                feedback.reportError(
+                    f"Request failed for {', '.join(request.params)} at "
+                    f"{request.site}: {exc}",
+                    fatalError=False,
+                )
+                continue
             observations, facts = parse_point_response(
                 payload,
                 temporal=request.temporal,
@@ -244,6 +254,11 @@ class PowerPointAlgorithm(PowerAlgorithm):
                 )
             return out
 
+        # parameterAsPoint returns QgsPointXY(0, 0) for an empty value rather
+        # than None, so an unset point silently fetched the Gulf of Guinea.
+        # Check the raw parameter instead.
+        if not str(parameters.get(P_POINT) or "").strip():
+            return []
         point = self.parameterAsPoint(
             parameters, P_POINT, context, QgsCoordinateReferenceSystem("EPSG:4326")
         )

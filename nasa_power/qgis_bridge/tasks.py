@@ -133,7 +133,10 @@ class PowerChunkTask(QgsTask):
                 # carry on; the report names every failure with its URL.
                 self._outcomes.append(FetchOutcome(request, error=str(exc)))
                 QgsMessageLog.logMessage(str(exc), LOG_TAG, Qgis.MessageLevel.Warning)
-            except PowerError as exc:
+            except (PowerError, OSError) as exc:
+                # OSError too: the cache write can fail on a full or read-only
+                # disk, and an exception escaping run() on a task-pool thread
+                # takes QGIS down rather than failing one tile.
                 self._outcomes.append(FetchOutcome(request, error=str(exc)))
                 QgsMessageLog.logMessage(str(exc), LOG_TAG, Qgis.MessageLevel.Warning)
 

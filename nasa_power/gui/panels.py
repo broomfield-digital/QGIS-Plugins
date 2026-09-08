@@ -17,9 +17,7 @@ from datetime import date
 from qgis.core import Qgis, QgsCoordinateReferenceSystem, QgsMapLayerProxyModel, QgsProject
 from qgis.gui import (
     QgsCheckableComboBox,
-    QgsCollapsibleGroupBox,
     QgsExtentGroupBox,
-    QgsFileWidget,
     QgsMapLayerComboBox,
 )
 from qgis.PyQt.QtCore import QDate, Qt, pyqtSignal
@@ -117,7 +115,12 @@ class WherePanel(QWidget):
         self.layer_combo = QgsMapLayerComboBox()
         self.layer_combo.setFilters(QgsMapLayerProxyModel.Filter.PointLayer)
         self.layer_combo.setAllowEmptyLayer(True, "— none —")
-        self.selected_only = QRadioButton("Selected features only")
+        # Empty by default. QgsMapLayerComboBox otherwise selects the first
+        # matching layer in the project, and sites() preferred it over the
+        # list -- so a user who clicked four points on the map silently
+        # fetched some unrelated layer instead.
+        self.layer_combo.setLayer(None)
+        self.selected_only = QCheckBox("Selected features only")
         layer_row.addRow("Or every point in", self.layer_combo)
         layer_row.addRow("", self.selected_only)
         sites_layout.addLayout(layer_row)
@@ -186,13 +189,18 @@ class WherePanel(QWidget):
         A chosen point layer wins over the typed list, because picking a layer
         is the more deliberate act.
         """
-        layer = self.layer_combo.currentLayer()
-        if layer is not None:
-            return self._sites_from_layer(layer)
-        return [
+        typed = [
             self.site_list.item(row).data(Qt.ItemDataRole.UserRole)
             for row in range(self.site_list.count())
         ]
+        layer = self.layer_combo.currentLayer()
+        if layer is None:
+            return typed
+        # A layer chosen *and* points listed is ambiguous, so both are used
+        # rather than one silently winning. Duplicates are harmless: the cache
+        # is keyed on the request URL, so the same coordinate fetched twice
+        # costs one request.
+        return typed + self._sites_from_layer(layer)
 
     def _sites_from_layer(self, layer) -> list[dict]:
         """Every point (or every selected point) in ``layer``, in degrees."""
@@ -209,9 +217,19 @@ class WherePanel(QWidget):
         out: list[dict] = []
         for index, feature in enumerate(features, start=1):
             geometry = feature.geometry()
-            if geometry.isEmpty():
+            if geometry.isNull() or geometry.isEmpty():
                 continue
-            point = to_wgs84(geometry.asPoint(), crs)
+            # asPoint() raises on a MultiPoint, and the combo's PointLayer
+            # filter accepts those -- so take the first vertex rather than
+            # letting a TypeError escape a signal handler.
+            try:
+                raw_point = geometry.asPoint()
+            except TypeError:
+                parts = geometry.asMultiPoint()
+                if not parts:
+                    continue
+                raw_point = parts[0]
+            point = to_wgs84(raw_point, crs)
             label = str(feature[name_field]) if name_field else f"feature_{index}"
             out.append({"name": label, "latitude": point.y(), "longitude": point.x()})
         return out
@@ -408,14 +426,30 @@ class OutputPanel(QWidget):
         for box in (self.add_to_map, self.auto_style, self.convert_si, self.force_refetch):
             layout.addWidget(box)
 
-        cache_row = QFormLayout()
-        self.cache_dir = QgsFileWidget()
-        self.cache_dir.setStorageMode(QgsFileWidget.StorageMode.GetDirectory)
-        cache_row.addRow("Cache", self.cache_dir)
-        layout.addLayout(cache_row)
+        # Read-only. The cache directory is a setting, not a per-fetch choice,
+        # and an editable field here did nothing at all -- nothing read it.
+        self.cache_label = QLabel()
+        self.cache_label.setWordWrap(True)
+        self.cache_label.setStyleSheet("color: palette(mid);")
+        self.refresh_cache_label()
+        layout.addWidget(self.cache_label)
 
         for box in (self.add_to_map, self.auto_style, self.convert_si, self.force_refetch):
             box.toggled.connect(lambda _: self.changed.emit())
+
+    def refresh_cache_label(self) -> None:
+        """Show where responses are cached, and who owns that choice."""
+        from nasa_power.qgis_bridge import paths
+
+        try:
+            directory = paths.resolve_cache_dir(create=False)
+        except Exception:  # pragma: no cover - diagnostics must not raise
+            directory = None
+        self.cache_label.setText(
+            f"Cached in {directory} — change it in Settings → Options → NASA POWER."
+            if directory
+            else "Cache location unavailable."
+        )
 
     def persist(self) -> None:
         """Remember the checkbox states for next session."""

@@ -149,12 +149,36 @@ class PowerAlgorithm(QgsProcessingAlgorithm):
                 feedback.pushInfo(text)
 
     def refuse_if_blocked(self, report: QaReport, feedback) -> None:
-        """Abort before any HTTP if pre-flight found something fatal."""
+        """Abort before any HTTP if pre-flight found something fatal.
+
+        Reports once. Calling ``report()`` here *and* at the call site printed
+        every finding twice for a run that then failed, which reads like two
+        separate problems.
+        """
         self.report(report, feedback)
         if report.is_blocked:
-            raise QgsProcessingException(
-                "; ".join(f.message for f in report.blocking)
-            )
+            raise QgsProcessingException("; ".join(f.message for f in report.blocking))
+
+    def fetcher(self, feedback):
+        """The fetcher an algorithm should use.
+
+        ``QgisFetcher``, not ``UrllibFetcher``: it inherits the user's proxy,
+        CA bundle and authentication from QGIS, which is the entire reason
+        ``qgis_bridge.net`` exists. Using urllib here meant the Processing path
+        would fail on exactly the networks the dock path works on. It also
+        carries the feedback object, so Cancel is noticed during a retry
+        backoff rather than minutes later.
+        """
+        from qgis.core import QgsFeedback
+
+        from nasa_power.qgis_bridge.net import QgisFetcher
+
+        channel = QgsFeedback()
+        try:
+            feedback.canceled.connect(channel.cancel)
+        except (AttributeError, TypeError):  # pragma: no cover - older feedback
+            pass
+        return QgisFetcher(channel)
 
 
 def _as_date(value: QDateTime) -> date:

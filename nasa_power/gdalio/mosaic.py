@@ -67,6 +67,14 @@ class MosaicResult:
     units: str = ""
     parameter: str = ""
     sources: tuple[str, ...] = ()
+    #: ``valid_min``/``valid_max`` as the source declared them, in native units.
+    #: Present only in the NetCDF -- the JSON responses carry no such range --
+    #: so this is the one path that can check values against the API's own
+    #: idea of plausible.
+    valid_range: tuple[float, float] | None = None
+    #: How many written pixels fell outside that range. Non-zero points at a
+    #: decoding or scaling error rather than at unusual weather.
+    out_of_range: int = 0
 
 
 def _open(path: str | Path) -> gdal.Dataset:
@@ -142,6 +150,14 @@ def mosaic(
     # output raster would carry no units at all -- which is how a temperature
     # map ends up unlabelled and a reader guesses.
     source_units = source.GetRasterBand(1).GetUnitType() or ""
+    band_md = source.GetRasterBand(1).GetMetadata()
+    try:
+        valid_range = (
+            float(band_md["valid_min"]),
+            float(band_md["valid_max"]),
+        )
+    except (KeyError, TypeError, ValueError):
+        valid_range = None
     source = None
 
     output_path = Path(output_path)
@@ -194,10 +210,17 @@ def mosaic(
         }
     )
 
+    out_of_range = 0
     for out_index, (source_index, (start, end)) in enumerate(
         zip(keep, intervals), start=1
     ):
         data = vrt.GetRasterBand(source_index).ReadAsArray()
+        if valid_range is not None:
+            finite = np.asarray(data, dtype="float64")
+            finite = finite[np.isfinite(finite)]
+            out_of_range += int(
+                ((finite < valid_range[0]) | (finite > valid_range[1])).sum()
+            )
         band = out.GetRasterBand(out_index)
         band.WriteArray(np.asarray(data, dtype="float32"))
         band.SetNoDataValue(NODATA)
@@ -229,6 +252,8 @@ def mosaic(
         units=units,
         parameter=parameter,
         sources=tuple(sources),
+        valid_range=valid_range,
+        out_of_range=out_of_range,
     )
 
 

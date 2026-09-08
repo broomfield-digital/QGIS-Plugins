@@ -20,9 +20,11 @@ while the canvas keeps whatever it was handed.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import datetime
 from pathlib import Path
+from typing import Sequence
 
 from qgis.core import (
     Qgis,
@@ -47,7 +49,13 @@ from nasa_power.core.citation import build_citation
 from nasa_power.core.decode import Observation, ResponseFacts, parse_point_response
 from nasa_power.core.display import layer_name
 from nasa_power.core.provenance import family_of, grid_for
-from nasa_power.core.qa import Level, QaReport, preflight, postfetch
+from nasa_power.core.qa import (
+    Level,
+    QaReport,
+    check_valid_range,
+    postfetch,
+    preflight,
+)
 from nasa_power.gui import param_model
 from nasa_power.gui.panels import OutputPanel, WherePanel, WhatPanel
 from nasa_power.gui.plot_widget import PowerPlotWidget
@@ -82,6 +90,7 @@ class NasaPowerDock(QgsDockWidget):
         self._previous_tool = None
         self._dictionary = None
         self._dictionary_task = None
+        self._preflight_report = None
 
         body = QWidget()
         layout = QVBoxLayout(body)
@@ -331,6 +340,11 @@ class NasaPowerDock(QgsDockWidget):
             return
 
         self.output.persist()
+        # Kept, not discarded: LST_REQUESTED, MIXED_PROVENANCE and RECORD_START
+        # are decided before the fetch, and they are exactly the findings that
+        # should reach the layer's metadata and its warning prefix. Overwriting
+        # the panel with only the post-fetch report lost them.
+        self._preflight_report = report
         job = FetchJob(
             requests=requests,
             cache_dir=paths.resolve_cache_dir(),
@@ -344,7 +358,10 @@ class NasaPowerDock(QgsDockWidget):
         task.on_complete = self._fetch_complete
         # Subtasks must exist before the manager takes the parent.
         task.build_subtasks()
-        task.progressChanged.connect(self.progress.setValue)
+        # progressChanged carries a double and QProgressBar.setValue takes an
+        # int: connected directly, PyQt6 raises TypeError on every tick, and
+        # QGIS's excepthook turns that into a dialog per progress update.
+        task.progressChanged.connect(lambda value: self.progress.setValue(int(value)))
 
         # Held for the task's life: C++ owns the task, but a garbage-collected
         # Python wrapper loses on_complete and the bound slots with it.
@@ -376,10 +393,12 @@ class NasaPowerDock(QgsDockWidget):
             return
 
         report = QaReport()
+        report.extend(getattr(self, "_preflight_report", None) or QaReport())
         by_parameter: dict[str, list[Observation]] = {}
         facts_by_parameter: dict[str, ResponseFacts] = {}
         urls: list[str] = []
-        citation = ""
+        all_sources: set[str] = set()
+        api_name = api_version = ""
 
         for outcome in job.outcomes:
             urls.append(outcome.request.url)
@@ -418,13 +437,21 @@ class NasaPowerDock(QgsDockWidget):
                     was_cached=outcome.was_cached,
                 )
             )
-            citation = citation or build_citation(
-                facts.api_name, facts.api_version, sources=facts.sources
-            )
+            # Every response's sources, not just the first: a family-split
+            # fetch has two parents and citing one contradicts the layer names
+            # this same fetch produces.
+            all_sources.update(facts.sources)
+            api_name = api_name or facts.api_name
+            api_version = api_version or facts.api_version
             for observation in observations:
                 by_parameter.setdefault(observation.parameter, []).append(observation)
                 facts_by_parameter.setdefault(observation.parameter, facts)
 
+        citation = (
+            build_citation(api_name, api_version, sources=tuple(sorted(all_sources)))
+            if all_sources or api_name
+            else ""
+        )
         self.qa.show_report(report, citation=citation, urls=urls)
 
         if not by_parameter:
@@ -458,14 +485,29 @@ class NasaPowerDock(QgsDockWidget):
         rather than plotted as zero -- POWER's fill is a real gap, and a zero
         in an irradiance series reads as darkness at noon.
         """
-        series: list[tuple[str, list[tuple[datetime, float]]]] = []
-        units = ""
+        # One unit per chart. A shared y-axis labelled with whichever
+        # parameter came back first drew irradiance against a Celsius scale,
+        # which is not a chart, it is a coincidence. Where a fetch spans units,
+        # the largest group is plotted and the QA panel says which.
+        by_units: dict[str, list[str]] = {}
         for parameter, observations in by_parameter.items():
+            for observation in observations:
+                by_units.setdefault(observation.units, []).append(parameter)
+                break
+        chosen_units = (
+            max(by_units, key=lambda u: len(by_units[u])) if by_units else ""
+        )
+        plotted = set(by_units.get(chosen_units, []))
+
+        series: list[tuple[str, list[tuple[datetime, float]]]] = []
+        units = chosen_units
+        for parameter, observations in by_parameter.items():
+            if parameter not in plotted:
+                continue
             by_site: dict[str, list[tuple[datetime, float]]] = {}
             for observation in observations:
                 if observation.value is None:
                     continue
-                units = units or observation.units
                 by_site.setdefault(observation.site, []).append(
                     (observation.t_start, observation.value)
                 )
@@ -493,6 +535,7 @@ class NasaPowerDock(QgsDockWidget):
         )
 
         report = QaReport()
+        report.extend(getattr(self, "_preflight_report", None) or QaReport())
         urls = [o.request.url for o in job.outcomes]
         by_parameter: dict[str, list] = {}
         for outcome in job.outcomes:
@@ -511,8 +554,8 @@ class NasaPowerDock(QgsDockWidget):
         added = 0
         for parameter, outcomes in by_parameter.items():
             first = outcomes[0].request
-            target = Path(job.cache_dir) / "rasters" / (
-                f"{parameter}-{first.temporal}-{first.start}-{first.end}.tif"
+            target = Path(job.cache_dir) / "rasters" / _raster_name(
+                parameter, [o.request for o in outcomes]
             )
             try:
                 result = mosaic(
@@ -522,7 +565,10 @@ class NasaPowerDock(QgsDockWidget):
                     parameter=parameter,
                     sources=[],
                 )
-            except MosaicError as exc:
+            # RuntimeError too: GDAL raises plain RuntimeErrors under
+            # UseExceptions, so an unreadable cached tile would otherwise escape
+            # finished() on the main thread and take QGIS's excepthook with it.
+            except (MosaicError, RuntimeError, OSError) as exc:
                 report.add(
                     QaFinding(
                         Level.ERROR,
@@ -534,6 +580,11 @@ class NasaPowerDock(QgsDockWidget):
                 )
                 continue
 
+            report.extend(
+                check_valid_range(
+                    parameter, result.valid_range, result.out_of_range, first.url
+                )
+            )
             if result.dropped_bands:
                 report.add(
                     QaFinding(
@@ -618,6 +669,7 @@ class NasaPowerDock(QgsDockWidget):
                 temporal=observations[0].temporal,
                 urls=urls,
                 grid_label=grid.label if grid else "",
+                converted=self.output.convert_si.isChecked(),
             )
             QgsProject.instance().addMapLayer(layer)
             added += 1
@@ -683,3 +735,26 @@ def _failure_finding(request: PowerRequest, error: str):
         affected=request.params,
         url=request.url,
     )
+
+
+def _raster_name(parameter: str, requests: Sequence[PowerRequest]) -> str:
+    """A filename that changes whenever the data behind it would.
+
+    The bug this exists to prevent, measured: naming a mosaic
+    ``{parameter}-{temporal}-{start}-{end}.tif`` omits the extent, the
+    community and the time standard. Fetch ``ALLSKY_SFC_SW_DWN`` for the same
+    dates under RE and then under AG and the second write lands on the first
+    file -- so a layer whose name says ``[kW-hr/m^2/day]`` ends up drawing
+    ``MJ/m^2/day`` values, wrong by a factor of 3.6, in the legend, in Identify
+    and in any zonal statistics. It survives into a saved project.
+
+    So the name carries a digest of the **request URLs**, which is the same
+    identity ``api.cache_path`` uses for the downloads themselves: anything
+    that would change the pixels changes the digest. The readable prefix is
+    kept so the directory is still browsable.
+    """
+    digest = hashlib.sha256(
+        "\n".join(sorted(r.url for r in requests)).encode()
+    ).hexdigest()[:12]
+    first = requests[0]
+    return f"{parameter}-{first.temporal}-{first.start}-{first.end}-{digest}.tif"

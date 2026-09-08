@@ -148,6 +148,17 @@ class QaReport:
 #: temporal controller can animate, so the count cannot simply be reduced.
 FEATURE_COUNT_LIMIT = 25_000
 
+#: Above this many tiles the request count is worth raising the voice about.
+#: Deliberately above a real continent: the full CONUS is 18 tiles and is a
+#: perfectly ordinary thing to ask for.
+LOUD_TILE_COUNT = 24
+
+#: A single request spanning more than half the planet in longitude is almost
+#: never meant. It is what a QgsRectangle drawn across the antimeridian becomes:
+#: normalisation turns 170..-170 into -170..170, the complement of the strip the
+#: user dragged.
+ANTIMERIDIAN_SUSPECT_SPAN = 180.0
+
 
 def _span(bbox: Mapping[str, float], lo: str, hi: str) -> float:
     return bbox[hi] - bbox[lo]
@@ -257,6 +268,20 @@ def preflight(
             )
         )
 
+    # -- somewhere to fetch ---------------------------------------------- #
+    if mode == "point" and not sites:
+        report.add(
+            QaFinding(
+                Level.BLOCKING,
+                "NO_SITES",
+                "Choose at least one location.",
+                detail=(
+                    "Click the map, type a latitude and longitude, or pick a "
+                    "point layer to fetch at every feature in it."
+                ),
+            )
+        )
+
     # -- bounding box ---------------------------------------------------- #
     if mode == "regional":
         if bbox is None:
@@ -313,7 +338,36 @@ def preflight(
             # sub-2-degree span. Pre-flight must report that as a finding, not
             # raise out of a function whose whole job is to return findings.
             n = count_requests(temporal, mode, parameters, bbox=bbox) if spans_legal else 0
-            if n > 1:
+            lon_span = _span(bbox, "lon_min", "lon_max")
+            if lon_span > ANTIMERIDIAN_SUSPECT_SPAN:
+                report.add(
+                    QaFinding(
+                        Level.WARNING,
+                        "ANTIMERIDIAN_SUSPECT",
+                        f"This extent spans {lon_span:.0f} degrees of longitude "
+                        f"-- more than half the planet.",
+                        detail=(
+                            "QGIS normalises a box drawn across the antimeridian into "
+                            "its complement, so a narrow strip at 180 degrees arrives "
+                            "here as a near-global one going the other way. If that is "
+                            "what happened, fetch the two halves separately."
+                        ),
+                    )
+                )
+            if n > LOUD_TILE_COUNT:
+                report.add(
+                    QaFinding(
+                        Level.WARNING,
+                        "MANY_TILES",
+                        f"This extent needs {n} requests.",
+                        detail=(
+                            "That is a lot to ask of a free API in one go, and POWER's "
+                            "docs ask clients not to hammer it. Check the extent is the "
+                            "box you meant."
+                        ),
+                    )
+                )
+            elif n > 1:
                 report.add(
                     QaFinding(
                         Level.INFO,
@@ -645,45 +699,35 @@ def _fill_findings(observations: Sequence[Observation], url: str) -> QaReport:
 
 
 def check_valid_range(
-    observations: Sequence[Observation],
-    valid_min: float | None,
-    valid_max: float | None,
     parameter: str,
+    valid_range: tuple[float, float] | None,
+    out_of_range: int,
     url: str = "",
 ) -> QaReport:
-    """Flag values outside the range the response declared for itself.
+    """Flag pixels outside the range the response declared for itself.
 
-    POWER ships ``valid_min``/``valid_max`` in its response attributes, in
-    native units, so this costs nothing and catches a scaling error that would
-    otherwise render as a merely odd-looking map.
+    ``valid_min``/``valid_max`` live in the **NetCDF** band metadata (measured:
+    ``T2M`` declares -125 to 80, in native units). The JSON responses carry no
+    such range at all, which is why this takes a count from the raster path
+    rather than a list of observations -- an earlier version of this function
+    walked ``Observation``s and could therefore never fire.
     """
     report = QaReport()
-    if valid_min is None and valid_max is None:
+    if not out_of_range or valid_range is None:
         return report
 
-    outside = [
-        o
-        for o in observations
-        if o.parameter == parameter
-        and o.native_value is not None
-        and (
-            (valid_min is not None and o.native_value < valid_min)
-            or (valid_max is not None and o.native_value > valid_max)
+    report.add(
+        QaFinding(
+            Level.ERROR,
+            "VALID_RANGE",
+            f"{out_of_range} pixel(s) of {parameter} fall outside the range POWER "
+            f"declared for it ({valid_range[0]:g} to {valid_range[1]:g}).",
+            detail=(
+                "The response declares this range itself, so values outside it point "
+                "at a decoding or scaling error rather than at unusual weather."
+            ),
+            affected=(parameter,),
+            url=url,
         )
-    ]
-    if outside:
-        report.add(
-            QaFinding(
-                Level.ERROR,
-                "VALID_RANGE",
-                f"{len(outside)} value(s) for {parameter} fall outside the range POWER "
-                f"declared ({valid_min} to {valid_max}).",
-                detail=(
-                    "The response declares this range itself, so values outside it "
-                    "point at a decoding or scaling error rather than at unusual weather."
-                ),
-                affected=(parameter,),
-                url=url,
-            )
-        )
+    )
     return report

@@ -139,13 +139,34 @@ class PowerOptionsPage(QgsOptionsPageWidget):
         much is at stake.
         """
         directory = paths.resolve_cache_dir(create=False)
-        size = paths.cache_size_bytes(directory)
+        if not directory.exists():
+            self.cache_size.setText(_human(0))
+            return
+
+        # rasters/ is not a cache of downloads: it holds the mosaicked GeoTIFFs
+        # that gridded map layers are reading from. Deleting those does not
+        # cost a re-download, it invalidates layers already on the map -- so
+        # they are counted and offered separately rather than swept up by a
+        # button whose promise is "it will just be fetched again".
+        rasters = directory / "rasters"
+        downloads = paths.cache_size_bytes(directory) - paths.cache_size_bytes(rasters)
+        derived = paths.cache_size_bytes(rasters)
+
+        message = (
+            f"Delete {_human(downloads)} of cached POWER responses from\n"
+            f"{directory}?\n\nThey will be downloaded again the next time they "
+            f"are asked for."
+        )
+        if derived:
+            message += (
+                f"\n\nThis will NOT touch the {_human(derived)} of mosaicked "
+                f"rasters in rasters/, because map layers may be reading them. "
+                f"Delete that folder by hand if you want it gone."
+            )
         answer = QMessageBox.question(
             self,
             "Clear the NASA POWER cache?",
-            f"Delete {_human(size)} of cached responses from\n{directory}?\n\n"
-            f"Anything deleted will be re-downloaded the next time it is asked "
-            f"for.",
+            message,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -155,6 +176,8 @@ class PowerOptionsPage(QgsOptionsPageWidget):
         import shutil
 
         for child in directory.iterdir():
+            if child.name == "rasters":
+                continue
             if child.is_dir():
                 shutil.rmtree(child, ignore_errors=True)
             else:

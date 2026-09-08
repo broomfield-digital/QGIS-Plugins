@@ -49,8 +49,16 @@ def build_metadata(
     temporal: str,
     urls: Sequence[str] = (),
     grid_label: str = "",
+    converted: bool = False,
 ) -> QgsLayerMetadata:
-    """Assemble the metadata record for one fetch."""
+    """Assemble the metadata record for one fetch.
+
+    ``converted`` says whether the values were actually scaled to SI. It is a
+    parameter rather than an assumption because the plugin's default is
+    POWER's native units, and a history item that describes a conversion which
+    did not happen is worse than none -- it is the layer asserting its own
+    numbers are something they are not.
+    """
     metadata = QgsLayerMetadata()
     metadata.setType(METADATA_TYPE)
     metadata.setLanguage(METADATA_LANGUAGE)
@@ -77,7 +85,7 @@ def build_metadata(
     metadata.setKeywords({"gmd:topicCategory": ["climatologyMeteorologyAtmosphere"]})
 
     _add_links(metadata, urls)
-    _add_history(metadata, facts, parameters, temporal)
+    _add_history(metadata, facts, parameters, temporal, converted)
     _add_constraints(metadata, report)
     return metadata
 
@@ -100,6 +108,7 @@ def _add_history(
     facts: ResponseFacts,
     parameters: Sequence[str],
     temporal: str,
+    converted: bool = False,
 ) -> None:
     api = " ".join(p for p in (facts.api_name, facts.api_version) if p)
     metadata.addHistoryItem(
@@ -119,8 +128,19 @@ def _add_history(
         )
     for parameter in parameters:
         native = facts.units.get(parameter, "")
-        if native:
+        if not native:
+            continue
+        if converted:
             metadata.addHistoryItem(f"{parameter}: {describe_conversion(native, temporal)}")
+        else:
+            # Say what happened, not what could have. Recording the SI
+            # conversion unconditionally documented an arithmetic that the
+            # native-units default never performs, so a Celsius layer's own
+            # history claimed it held Kelvin.
+            metadata.addHistoryItem(
+                f"{parameter}: values kept in POWER's native units "
+                f"({native}); no conversion applied."
+            )
     for message in facts.messages:
         metadata.addHistoryItem(f"POWER message: {message}")
 
@@ -146,6 +166,7 @@ def apply_metadata(
     temporal: str,
     urls: Sequence[str] = (),
     grid_label: str = "",
+    converted: bool = False,
 ) -> None:
     """Build and attach the metadata record to ``layer``."""
     layer.setMetadata(
@@ -157,5 +178,6 @@ def apply_metadata(
             temporal=temporal,
             urls=urls,
             grid_label=grid_label,
+            converted=converted,
         )
     )

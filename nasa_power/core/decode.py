@@ -32,6 +32,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Mapping, Sequence
 
+from datetime import timedelta
+
 from nasa_power.core.errors import PowerValidationError
 from nasa_power.core.provenance import Family, family_of, snap_to_grid
 from nasa_power.core.timeaxis import decode_time_keys, dropped_keys
@@ -192,6 +194,7 @@ def _observations_from_block(
     elevation: float | None,
     derive_cell: bool,
     convert: bool = False,
+    time_shift: timedelta | None = None,
 ) -> list[Observation]:
     """Turn one ``properties.parameter`` block into observations."""
     out: list[Observation] = []
@@ -228,6 +231,9 @@ def _observations_from_block(
             canonical = native_units
 
         for (key, t_start, t_end), native, value in zip(decoded, natives, converted):
+            if time_shift is not None:
+                t_start = t_start + time_shift
+                t_end = t_end + time_shift
             out.append(
                 Observation(
                     site=site,
@@ -248,6 +254,22 @@ def _observations_from_block(
                 )
             )
     return out
+
+
+def lst_offset(longitude: float) -> timedelta:
+    """UTC offset of POWER's Local Solar Time at ``longitude``.
+
+    Local solar time advances four minutes per degree of longitude, but POWER
+    keys its hourly data ``YYYYMMDDHH``, so its LST is quantized to **whole
+    hours**: ``round(longitude / 15)``.
+
+    Measured, and this is what pins the rounding. At Boulder (-105.27) the
+    exact offset is 7 h 1 min 5 s, but the same irradiance peak -- 911.15, value
+    for value -- appears at key ``2024060117`` under UTC and ``2024060110``
+    under LST. Exactly seven hours. Using the unrounded offset would leave the
+    two series 65 seconds apart, which is a small error that never closes.
+    """
+    return timedelta(hours=round(longitude / 15.0))
 
 
 def _geometry(feature: Mapping[str, Any], url: str | None) -> tuple[float, float, float | None]:
@@ -300,6 +322,13 @@ def parse_point_response(
         # cell has to be derived.
         derive_cell=True,
         convert=convert,
+        # POWER's LST keys are local solar wall-clock. Stamped as UTC they put
+        # the layer ~7 h from where the Temporal Controller shows it at
+        # mid-latitudes, so they are shifted to real instants here and the
+        # convention is recorded in the layer.
+        time_shift=-lst_offset(longitude)
+        if facts.time_standard.upper() == "LST"
+        else None,
     )
     return observations, facts
 
